@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Coral Segmentation + TFLite Classifier</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/tf-tflite.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu@4.22.0/dist/tf-backend-cpu.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/tf-tflite.min.js"></script>
 <style>
 body{font-family:Arial;margin:0;background:#f4f7fb;color:#172033}
 .wrap{max-width:1150px;margin:25px auto;padding:0 16px}
@@ -30,6 +31,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px so
 <div class="wrap">
 <h1>Coral Species Classification</h1>
 <p>Segmentation → Background Suppression → <b>model.tflite</b> → Prediction</p>
+<p style="font-size:13px;color:#64748b">
+The TFLite WebAssembly runtime is explicitly configured for browser deployment.
+</p>
 
 <div class="card">
 <h2>1. Upload Files</h2>
@@ -95,10 +99,50 @@ function enable(){$("run").disabled=!(READY.m&&READY.l&&READY.i)}
 $("model").onchange=async e=>{
  try{
   const f=e.target.files[0]; if(!f)return;
-  msg("Loading model.tflite...");
-  MODEL=await tflite.loadTFLiteModel(URL.createObjectURL(f));
-  READY.m=true;msg("model.tflite loaded.");
- }catch(x){READY.m=false;msg("Model error: "+x.message,true)} enable()
+
+  msg("Initializing TensorFlow Lite WebAssembly runtime...");
+
+  // The TFLite Web API uses WebAssembly. Explicitly point it to the
+  // directory containing the TFLite WASM runtime files.
+  tflite.setWasmPath(
+    "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/"
+  );
+
+  // Explicitly use the CPU backend required by the TFLite web wrapper.
+  await tf.setBackend("cpu");
+  await tf.ready();
+
+  msg("Reading model.tflite...");
+
+  // Passing the uploaded ArrayBuffer directly avoids blob-URL/WASM
+  // path problems in some browsers.
+  const buffer = await f.arrayBuffer();
+
+  MODEL = await tflite.loadTFLiteModel(
+    buffer,
+    {numThreads: 1}
+  );
+
+  READY.m=true;
+
+  msg(
+    "model.tflite loaded successfully.\\n" +
+    "TensorFlow Lite WebAssembly runtime is ready."
+  );
+
+ }catch(x){
+  console.error("TFLite loading error:", x);
+  READY.m=false;
+
+  msg(
+    "Model error: " + (x && x.message ? x.message : String(x)) +
+    "\\n\\n" +
+    "If this persists, the TFLite file may use an unsupported " +
+    "operator or may not be a valid TFLite FlatBuffer.",
+    true
+  );
+ }
+ enable()
 };
 
 $("labels").onchange=async e=>{
