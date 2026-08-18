@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coral Segmentation + TFLite Classifier</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/tf-tflite.min.js"></script>
+<style>
+body{font-family:Arial;margin:0;background:#f4f7fb;color:#172033}
+.wrap{max-width:1150px;margin:25px auto;padding:0 16px}
+.card{background:#fff;padding:20px;margin:16px 0;border-radius:14px;box-shadow:0 3px 15px #0001}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.box{border:2px dashed #cbd5e1;padding:16px;border-radius:10px}
+button,select{padding:11px 15px;border-radius:8px;border:1px solid #cbd5e1}
+button{background:#2563eb;color:#fff;border:0;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5}
+canvas{width:100%;max-width:330px;border-radius:8px;background:#111}
+.visuals{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+.metric{display:inline-block;background:#f8fafc;padding:14px;margin:5px;border-radius:9px}
+.result{text-align:center;background:#eff6ff;padding:20px;border-radius:10px}
+.species{font-size:28px;font-weight:bold;color:#1d4ed8}
+.status{white-space:pre-wrap;padding:12px;background:#eff6ff;border-radius:8px;margin-top:14px}
+.err{background:#fee2e2;color:#991b1b}
+table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #ddd;text-align:left}
+@media(max-width:750px){.grid,.visuals{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Coral Species Classification</h1>
+<p>Segmentation → Background Suppression → <b>model.tflite</b> → Prediction</p>
+
+<div class="card">
+<h2>1. Upload Files</h2>
+<div class="grid">
+<div class="box"><b>model.tflite</b><input id="model" type="file" accept=".tflite"></div>
+<div class="box"><b>labels.json</b><input id="labels" type="file" accept=".json"></div>
+<div class="box"><b>Coral image</b><input id="image" type="file" accept="image/*"></div>
+</div>
+<br>
+<label>Segmentation method:
+<select id="method">
+<option value="combined">Combined</option>
+<option value="hsv">HSV</option>
+<option value="lab">LAB + Otsu</option>
+<option value="adaptive">Adaptive</option>
+<option value="kmeans">K-Means</option>
+<option value="watershed">Watershed</option>
+<option value="grabcut">GrabCut-like</option>
+</select>
+</label>
+<button id="run" disabled>Segment + Predict</button>
+<div id="status" class="status">Upload all three files.</div>
+</div>
+
+<div class="card">
+<h2>2. Segmentation</h2>
+<div class="visuals">
+<div><h3>Original</h3><canvas id="orig" width="256" height="256"></canvas></div>
+<div><h3>Mask</h3><canvas id="mask" width="256" height="256"></canvas></div>
+<div><h3>Segmented Input</h3><canvas id="seg" width="256" height="256"></canvas></div>
+</div>
+</div>
+
+<div class="card">
+<h2>3. Prediction</h2>
+<div class="result">
+<div>Predicted coral species</div>
+<div id="species" class="species">—</div>
+<div id="conf">Confidence: —</div>
+</div>
+<div>
+<span class="metric">Foreground: <b id="fg">—</b></span>
+<span class="metric">Background: <b id="bg">—</b></span>
+<span class="metric">Method: <b id="used">—</b></span>
+</div>
+</div>
+
+<div class="card">
+<h2>4. Top Predictions</h2>
+<table><thead><tr><th>Rank</th><th>Species</th><th>Confidence</th></tr></thead>
+<tbody id="top"><tr><td colspan="3">No prediction.</td></tr></tbody></table>
+</div>
+</div>
+
+<script>
+let MODEL=null,LABELS=[],READY={m:false,l:false,i:false};
+const N=256,$=id=>document.getElementById(id);
+const status=$("status");
+
+function msg(x,err=false){status.textContent=x;status.className="status"+(err?" err":"")}
+function enable(){$("run").disabled=!(READY.m&&READY.l&&READY.i)}
+
+$("model").onchange=async e=>{
+ try{
+  const f=e.target.files[0]; if(!f)return;
+  msg("Loading model.tflite...");
+  MODEL=await tflite.loadTFLiteModel(URL.createObjectURL(f));
+  READY.m=true;msg("model.tflite loaded.");
+ }catch(x){READY.m=false;msg("Model error: "+x.message,true)} enable()
+};
+
+$("labels").onchange=async e=>{
+ try{
+  const f=e.target.files[0]; if(!f)return;
+  const d=JSON.parse(await f.text());
+  LABELS=Array.isArray(d)?d:(d.labels||d.class_names||d.classes||Object.keys(d).sort((a,b)=>+a-+b).map(k=>d[k]));
+  if(!LABELS.length)throw Error("No labels found in labels.json");
+  LABELS=LABELS.map(String);READY.l=true;msg("labels.json loaded: "+LABELS.length+" classes.");
+ }catch(x){READY.l=false;msg("Labels error: "+x.message,true)} enable()
+};
+
+$("image").onchange=e=>{
+ const f=e.target.files[0];if(!f)return;
+ const im=new Image();
+ im.onload=()=>{ $("orig").getContext("2d").drawImage(im,0,0,N,N);READY.i=true;msg("Image loaded. Ready.");enable();URL.revokeObjectURL(im.src)}
+ im.src=URL.createObjectURL(f)
+};
+
+/* ---------- image utilities ---------- */
+function data(){return $("orig").getContext("2d").getImageData(0,0,N,N)}
+function hsv(r,g,b){
+ r/=255;g/=255;b/=255;let mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
+ if(d){if(mx===r)h=60*(((g-b)/d)%6);else if(mx===g)h=60*((b-r)/d+2);else h=60*((r-g)/d+4)}
+ if(h<0)h+=360;return[h,(mx?d/mx:0)*255,mx*255]
+}
+function gray(a){let g=new Float32Array(N*N);for(let i=0;i<N*N;i++){let p=i*4;g[i]=.299*a[p]+.587*a[p+1]+.114*a[p+2]}return g}
+function clean(m){
+ let z=new Uint8Array(m.length);
+ for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){let c=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)c+=m[(y+dy)*N+x+dx];z[y*N+x]=c>=5?1:0}
+ return z
+}
+function invertIfBorder(m){
+ let b=0,t=0;for(let x=0;x<N;x++){b+=m[x]+m[(N-1)*N+x];t+=2}
+ for(let y=1;y<N-1;y++){b+=m[y*N]+m[y*N+N-1];t+=2}
+ if(b/t>.5)for(let i=0;i<m.length;i++)m[i]=1-m[i];return m
+}
+
+/* HSV: suppress blue/cyan water and very dark low-saturation areas */
+function hsvSeg(d){
+ let m=new Uint8Array(N*N);
+ for(let i=0;i<N*N;i++){let p=i*4,h=hsv(d.data[p],d.data[p+1],d.data[p+2]);
+  let water=(h[0]>=160&&h[0]<=280&&h[1]>40),dark=h[1]<25&&h[2]<150;
+  m[i]=water||dark?0:1
+ }return clean(m)
+}
+
+/* LAB-like chroma proxy using a* approximation */
+function labSeg(d){
+ let v=new Float32Array(N*N);
+ for(let i=0;i<N*N;i++){let p=i*4,r=d.data[p],g=d.data[p+1],b=d.data[p+2];v[i]=r-(g+b)/2}
+ let mn=Math.min(...v),mx=Math.max(...v),th=mn+(mx-mn)*.50,m=new Uint8Array(N*N);
+ for(let i=0;i<m.length;i++)m[i]=v[i]>th?1:0;return clean(invertIfBorder(m))
+}
+
+/* Adaptive local mean */
+function adaptiveSeg(d){
+ let g=gray(d.data),m=new Uint8Array(N*N),R=7,C=5;
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){let s=0,c=0;
+  for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){let yy=Math.max(0,Math.min(N-1,y+dy)),xx=Math.max(0,Math.min(N-1,x+dx));s+=g[yy*N+xx];c++}
+  m[y*N+x]=g[y*N+x]>s/c-C?1:0
+ }return clean(invertIfBorder(m))
+}
+
+/* Lightweight K-Means */
+function kmeansSeg(d){
+ let pix=[];for(let i=0;i<N*N;i++){let p=i*4;pix.push([d.data[p],d.data[p+1],d.data[p+2]])}
+ let c=[pix[0],pix[Math.floor(pix.length*.25)],pix[Math.floor(pix.length*.5)],pix[Math.floor(pix.length*.75)]].map(x=>x.slice()),a=new Uint8Array(pix.length);
+ for(let it=0;it<6;it++){
+  for(let i=0;i<pix.length;i++){let best=0,bd=1e30;for(let k=0;k<4;k++){let dr=pix[i][0]-c[k][0],dg=pix[i][1]-c[k][1],db=pix[i][2]-c[k][2],q=dr*dr+dg*dg+db*db;if(q<bd){bd=q;best=k}}a[i]=best}
+  let s=Array.from({length:4},()=>[0,0,0,0]);for(let i=0;i<pix.length;i++){let k=a[i];s[k][0]+=pix[i][0];s[k][1]+=pix[i][1];s[k][2]+=pix[i][2];s[k][3]++}
+  for(let k=0;k<4;k++)if(s[k][3])c[k]=[s[k][0]/s[k][3],s[k][1]/s[k][3],s[k][2]/s[k][3]]
+ }
+ let kbest=0,score=-1e30;for(let k=0;k<4;k++){let q=c[k][0]-c[k][2]+Math.abs(c[k][0]-c[k][1])*.25;if(q>score){score=q;kbest=k}}
+ let m=new Uint8Array(N*N);for(let i=0;i<m.length;i++)m[i]=a[i]===kbest?1:0;return clean(m)
+}
+
+/* Watershed-style edge/foreground approximation for browser deployment */
+function watershedSeg(d){
+ let g=gray(d.data),m=new Uint8Array(N*N);
+ for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){
+  let q=Math.abs(g[y*N+x+1]-g[y*N+x-1])+Math.abs(g[(y+1)*N+x]-g[(y-1)*N+x]);
+  m[y*N+x]=q>35?1:0
+ }return clean(m)
+}
+
+/* Browser-safe GrabCut-like foreground approximation */
+function grabcutSeg(d){
+ let a=hsvSeg(d),b=labSeg(d),m=new Uint8Array(N*N);
+ for(let i=0;i<m.length;i++)m[i]=a[i]&&b[i]?1:0;return clean(m)
+}
+function combinedSeg(d){
+ let ms=[grabcutSeg(d),hsvSeg(d),labSeg(d),adaptiveSeg(d),kmeansSeg(d),watershedSeg(d)],m=new Uint8Array(N*N);
+ for(let i=0;i<m.length;i++){let v=0;for(const q of ms)v+=q[i];m[i]=v>=2?1:0}return clean(m)
+}
+function segment(d,method){
+ if(method==="hsv")return hsvSeg(d);
+ if(method==="lab")return labSeg(d);
+ if(method==="adaptive")return adaptiveSeg(d);
+ if(method==="kmeans")return kmeansSeg(d);
+ if(method==="watershed")return watershedSeg(d);
+ if(method==="grabcut")return grabcutSeg(d);
+ return combinedSeg(d)
+}
+
+/* ---------- canvas output ---------- */
+function drawMask(m){
+ let c=$("mask").getContext("2d"),o=c.createImageData(N,N);
+ for(let i=0;i<m.length;i++){let p=i*4,v=m[i]?255:0;o.data[p]=o.data[p+1]=o.data[p+2]=v;o.data[p+3]=255}
+ c.putImageData(o,0,0)
+}
+function drawSegmented(d,m){
+ let c=$("seg").getContext("2d"),o=c.createImageData(N,N);
+ for(let i=0;i<m.length;i++){let p=i*4;if(m[i]){o.data[p]=d.data[p];o.data[p+1]=d.data[p+1];o.data[p+2]=d.data[p+2]}o.data[p+3]=255}
+ c.putImageData(o,0,0);return o
+}
+function tensorFromImage(d){
+ let v=new Float32Array(N*N*3),j=0;
+ for(let i=0;i<N*N;i++){let p=i*4;v[j++]=d.data[p]/255;v[j++]=d.data[p+1]/255;v[j++]=d.data[p+2]/255}
+ return tf.tensor(v,[1,N,N,3],"float32")
+}
+function outputTensor(o){
+ if(o&&typeof o.data==="function")return o;
+ if(Array.isArray(o))return o.find(x=>x&&typeof x.data==="function");
+ if(o&&typeof o==="object")return Object.values(o).find(x=>x&&typeof x.data==="function");
+ return null
+}
+function probabilities(a){
+ let s=a.reduce((x,y)=>x+y,0);
+ if(a.every(x=>x>=0&&x<=1)&&Math.abs(s-1)<.02)return a;
+ let mx=Math.max(...a),e=a.map(x=>Math.exp(x-mx)),es=e.reduce((x,y)=>x+y,0);return e.map(x=>x/es)
+}
+function showPrediction(a){
+ let q=a.map((v,i)=>({v,i})).sort((x,y)=>y.v-x.v),best=q[0],name=LABELS[best.i]??("Class "+best.i);
+ $("species").textContent=name;$("conf").textContent="Confidence: "+(best.v*100).toFixed(2)+"%";
+ $("top").innerHTML=q.slice(0,5).map((x,r)=>`<tr><td>${r+1}</td><td>${esc(LABELS[x.i]??("Class "+x.i))}</td><td>${(x.v*100).toFixed(2)}%</td></tr>`).join("")
+}
+function esc(s){let d=document.createElement("div");d.textContent=s;return d.innerHTML}
+
+/* ---------- main ---------- */
+$("run").onclick=async()=>{
+ $("run").disabled=true;
+ try{
+  const method=$("method").value;
+  msg("Step 1/3: segmenting image using "+method+"...");
+  await tf.nextFrame();
+  const d=data(),m=segment(d,method);
+  drawMask(m);
+  const seg=drawSegmented(d,m);
+  let fg=0;for(const x of m)fg+=x;
+  const fgp=fg/m.length*100;
+  $("fg").textContent=fgp.toFixed(2)+"%";
+  $("bg").textContent=(100-fgp).toFixed(2)+"%";
+  $("used").textContent=method.toUpperCase();
+
+  msg("Step 2/3: background suppressed.\nStep 3/3: applying model.tflite to the segmented image...");
+  await tf.nextFrame();
+
+  const input=tensorFromImage(seg);
+  let out=await MODEL.predict(input);
+  input.dispose();
+  const t=outputTensor(out);
+  if(!t)throw Error("TFLite output tensor could not be read.");
+  const vals=Array.from(await t.data());
+  showPrediction(probabilities(vals));
+
+  msg("Completed.\n\nPipeline:\nOriginal → Segmentation → Background suppression → model.tflite → Prediction");
+ }catch(e){console.error(e);msg("Processing error:\n"+e.message,true)}
+ finally{enable()}
+}
+</script>
+</body>
+</html>
