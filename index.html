@@ -73,6 +73,11 @@ The TFLite WebAssembly runtime is explicitly configured for browser deployment.
 <div>Predicted coral species</div>
 <div id="species" class="species">—</div>
 <div id="conf">Confidence: —</div>
+<div style="margin-top:12px;font-size:14px;">
+    <b>Temperature:</b> <span id="temperatureValue">2</span>
+    &nbsp;&nbsp;
+    <b>Probability:</b> <span id="probabilityMethod">Stable Softmax</span>
+</div>
 </div>
 <div>
 <span class="metric">Foreground: <b id="fg">—</b></span>
@@ -82,7 +87,7 @@ The TFLite WebAssembly runtime is explicitly configured for browser deployment.
 </div>
 
 <div class="card">
-<h2>4. Top Predictions</h2>
+<h2>4. Top Predictions — Temperature 2, Stable Softmax</h2>
 <table><thead><tr><th>Rank</th><th>Species</th><th>Confidence</th></tr></thead>
 <tbody id="top"><tr><td colspan="3">No prediction.</td></tr></tbody></table>
 </div>
@@ -90,7 +95,10 @@ The TFLite WebAssembly runtime is explicitly configured for browser deployment.
 
 <script>
 let MODEL=null,LABELS=[],READY={m:false,l:false,i:false};
-const N=256,$=id=>document.getElementById(id);
+const N=256;
+const TEMPERATURE=2;
+const PROBABILITY_METHOD="Stable Softmax";
+const $=id=>document.getElementById(id);
 const status=$("status");
 
 function msg(x,err=false){status.textContent=x;status.className="status"+(err?" err":"")}
@@ -271,9 +279,35 @@ function outputTensor(o){
  return null
 }
 function probabilities(a){
- let s=a.reduce((x,y)=>x+y,0);
- if(a.every(x=>x>=0&&x<=1)&&Math.abs(s-1)<.02)return a;
- let mx=Math.max(...a),e=a.map(x=>Math.exp(x-mx)),es=e.reduce((x,y)=>x+y,0);return e.map(x=>x/es)
+ /*
+  * Temperature-scaled stable Softmax.
+  *
+  * T = 2 makes the probability distribution less sharp
+  * than ordinary Softmax (T = 1).
+  *
+  * For logits z_i:
+  *
+  * P_i = exp(z_i / T) / sum_j exp(z_j / T)
+  *
+  * The maximum logit is subtracted before exponentiation
+  * for numerical stability.
+  */
+ const T = TEMPERATURE;
+
+ let mx = Math.max(...a);
+
+ let e = a.map(
+     x => Math.exp((x - mx) / T)
+ );
+
+ let es = e.reduce(
+     (x, y) => x + y,
+     0
+ );
+
+ return e.map(
+     x => x / es
+ );
 }
 function showPrediction(a){
  let q=a.map((v,i)=>({v,i})).sort((x,y)=>y.v-x.v),best=q[0],name=LABELS[best.i]??("Class "+best.i);
@@ -309,7 +343,13 @@ $("run").onclick=async()=>{
   const vals=Array.from(await t.data());
   showPrediction(probabilities(vals));
 
-  msg("Completed.\n\nPipeline:\nOriginal → Segmentation → Background suppression → model.tflite → Prediction");
+  msg(
+    "Completed.\\n\\n" +
+    "Pipeline:\\n" +
+    "Original → Segmentation → Background suppression → model.tflite → Prediction\\n\\n" +
+    "Temperature: " + TEMPERATURE + "\\n" +
+    "Probability: " + PROBABILITY_METHOD
+);
  }catch(e){console.error(e);msg("Processing error:\n"+e.message,true)}
  finally{enable()}
 }
