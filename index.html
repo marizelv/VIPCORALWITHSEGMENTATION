@@ -1,358 +1,2813 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Coral Segmentation + TFLite Classifier</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coral Species Classification AI</title>
+
+<!-- TensorFlow.js -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu@4.22.0/dist/tf-backend-cpu.min.js"></script>
+
+<!-- TFLite Web -->
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/tf-tflite.min.js"></script>
+
 <style>
-body{font-family:Arial;margin:0;background:#f4f7fb;color:#172033}
-.wrap{max-width:1150px;margin:25px auto;padding:0 16px}
-.card{background:#fff;padding:20px;margin:16px 0;border-radius:14px;box-shadow:0 3px 15px #0001}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.box{border:2px dashed #cbd5e1;padding:16px;border-radius:10px}
-button,select{padding:11px 15px;border-radius:8px;border:1px solid #cbd5e1}
-button{background:#2563eb;color:#fff;border:0;font-weight:bold;cursor:pointer}
-button:disabled{opacity:.5}
-canvas{width:100%;max-width:330px;border-radius:8px;background:#111}
-.visuals{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
-.metric{display:inline-block;background:#f8fafc;padding:14px;margin:5px;border-radius:9px}
-.result{text-align:center;background:#eff6ff;padding:20px;border-radius:10px}
-.species{font-size:28px;font-weight:bold;color:#1d4ed8}
-.status{white-space:pre-wrap;padding:12px;background:#eff6ff;border-radius:8px;margin-top:14px}
-.err{background:#fee2e2;color:#991b1b}
-table{width:100%;border-collapse:collapse}th,td{padding:9px;border-bottom:1px solid #ddd;text-align:left}
-@media(max-width:750px){.grid,.visuals{grid-template-columns:1fr}}
+*{box-sizing:border-box}
+
+body{
+    margin:0;
+    padding:25px 15px;
+    font-family:Arial,Helvetica,sans-serif;
+    background:#f4f7fb;
+    color:#222;
+}
+
+.container{
+    width:100%;
+    max-width:1200px;
+    margin:auto;
+    background:white;
+    padding:28px;
+    border-radius:18px;
+    box-shadow:0 8px 30px rgba(0,0,0,.10);
+}
+
+h1{
+    text-align:center;
+    margin:0 0 8px;
+    color:#0077b6;
+}
+
+.subtitle{
+    text-align:center;
+    color:#666;
+    margin-bottom:25px;
+}
+
+.section{
+    margin-bottom:20px;
+    padding:22px;
+    border:1px solid #ddd;
+    border-radius:12px;
+    background:#fafafa;
+}
+
+.section h2{
+    margin-top:0;
+    color:#0077b6;
+}
+
+.file-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:15px;
+}
+
+.file-box{
+    background:white;
+    border:2px dashed #ccd6df;
+    border-radius:10px;
+    padding:16px;
+}
+
+.file-box label{
+    display:block;
+    font-weight:bold;
+    margin-bottom:8px;
+}
+
+input[type=file]{
+    width:100%;
+    padding:9px;
+}
+
+.controls{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    align-items:center;
+    margin-top:18px;
+}
+
+select{
+    padding:11px;
+    border:1px solid #ccc;
+    border-radius:8px;
+    background:white;
+}
+
+button{
+    padding:13px 22px;
+    border:none;
+    border-radius:9px;
+    background:#0077b6;
+    color:white;
+    font-size:15px;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+button:hover{background:#005f8f}
+
+button:disabled{
+    background:#aaa;
+    cursor:not-allowed;
+}
+
+.status{
+    margin-top:15px;
+    padding:13px;
+    border-radius:8px;
+    background:#fff3cd;
+    color:#856404;
+    font-weight:bold;
+    white-space:pre-wrap;
+}
+
+.status.success{
+    background:#d4edda;
+    color:#155724;
+}
+
+.status.error{
+    background:#f8d7da;
+    color:#721c24;
+}
+
+.model-info{
+    margin-top:15px;
+    padding:14px;
+    background:#eef6fb;
+    border-radius:8px;
+    line-height:1.7;
+    font-size:14px;
+}
+
+.visual-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:18px;
+}
+
+.visual-card{
+    background:white;
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:12px;
+}
+
+.visual-card h3{
+    margin-top:0;
+    color:#0077b6;
+    text-align:center;
+}
+
+canvas{
+    width:100%;
+    height:auto;
+    display:block;
+    border-radius:8px;
+    background:#111;
+}
+
+.result{
+    margin-top:15px;
+    padding:25px;
+    background:#f7f9fb;
+    border-radius:12px;
+}
+
+.result-title{
+    text-align:center;
+    color:#666;
+    font-size:18px;
+}
+
+.species{
+    text-align:center;
+    font-size:31px;
+    font-weight:bold;
+    color:#0077b6;
+    margin:10px 0;
+}
+
+.confidence{
+    text-align:center;
+    font-size:21px;
+    margin-bottom:20px;
+}
+
+.meta{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:10px;
+    margin-top:15px;
+}
+
+.meta-card{
+    background:white;
+    border:1px solid #ddd;
+    border-radius:9px;
+    padding:13px;
+}
+
+.meta-label{
+    color:#777;
+    font-size:12px;
+}
+
+.meta-value{
+    font-weight:bold;
+    margin-top:5px;
+}
+
+.predictions{
+    background:white;
+    padding:18px;
+    border-radius:10px;
+}
+
+.prediction-row{
+    display:grid;
+    grid-template-columns:50px 1fr 100px;
+    gap:10px;
+    align-items:center;
+    padding:10px 0;
+    border-bottom:1px solid #ddd;
+}
+
+.prediction-row:last-child{
+    border-bottom:none;
+}
+
+.bar{
+    height:8px;
+    background:#e5e7eb;
+    border-radius:20px;
+    overflow:hidden;
+    margin-top:5px;
+}
+
+.bar-fill{
+    height:100%;
+    background:#0077b6;
+}
+
+.explanation{
+    background:#eef6fb;
+    padding:15px;
+    border-radius:9px;
+    line-height:1.6;
+    color:#444;
+}
+
+@media(max-width:850px){
+    .file-grid,
+    .visual-grid,
+    .meta{
+        grid-template-columns:1fr;
+    }
+
+    .prediction-row{
+        grid-template-columns:35px 1fr 85px;
+    }
+}
 </style>
 </head>
-<body>
-<div class="wrap">
-<h1>Coral Species Classification</h1>
-<p>Segmentation → Background Suppression → <b>model.tflite</b> → Prediction</p>
-<p style="font-size:13px;color:#64748b">
-The TFLite WebAssembly runtime is explicitly configured for browser deployment.
-</p>
 
-<div class="card">
-<h2>1. Upload Files</h2>
-<div class="grid">
-<div class="box"><b>model.tflite</b><input id="model" type="file" accept=".tflite"></div>
-<div class="box"><b>labels.json</b><input id="labels" type="file" accept=".json"></div>
-<div class="box"><b>Coral image</b><input id="image" type="file" accept="image/*"></div>
+<body>
+
+<div class="container">
+
+<h1>Coral Species Classification AI</h1>
+
+<div class="subtitle">
+Segmentation-Guided Coral Species Classification using TensorFlow Lite
 </div>
-<br>
-<label>Segmentation method:
-<select id="method">
+
+<!-- ========================================================= -->
+<!-- STEP 1 -->
+<!-- ========================================================= -->
+
+<div class="section">
+
+<h2>Step 1 — Upload Model, Labels and Image</h2>
+
+<div class="file-grid">
+
+<div class="file-box">
+<label for="modelInput">TFLite Model</label>
+<input
+    type="file"
+    id="modelInput"
+    accept=".tflite,application/octet-stream">
+</div>
+
+<div class="file-box">
+<label for="labelsInput">labels.json</label>
+<input
+    type="file"
+    id="labelsInput"
+    accept=".json,application/json">
+</div>
+
+<div class="file-box">
+<label for="imageInput">Coral Image</label>
+<input
+    type="file"
+    id="imageInput"
+    accept="image/*">
+</div>
+
+</div>
+
+<div class="controls">
+
+<label>
+Segmentation:
+<select id="segmentationMethod">
 <option value="combined">Combined</option>
 <option value="hsv">HSV</option>
 <option value="lab">LAB + Otsu</option>
 <option value="adaptive">Adaptive</option>
 <option value="kmeans">K-Means</option>
-<option value="watershed">Watershed</option>
+<option value="watershed">Watershed-style</option>
 <option value="grabcut">GrabCut-like</option>
 </select>
 </label>
-<button id="run" disabled>Segment + Predict</button>
-<div id="status" class="status">Upload all three files.</div>
+
+<button id="loadModelButton">
+LOAD TFLITE MODEL
+</button>
+
+<button id="predictButton" disabled>
+SEGMENT + PREDICT
+</button>
+
 </div>
 
-<div class="card">
-<h2>2. Segmentation</h2>
-<div class="visuals">
-<div><h3>Original</h3><canvas id="orig" width="256" height="256"></canvas></div>
-<div><h3>Mask</h3><canvas id="mask" width="256" height="256"></canvas></div>
-<div><h3>Segmented Input</h3><canvas id="seg" width="256" height="256"></canvas></div>
-</div>
+<div id="status" class="status">
+Please upload model.tflite, labels.json and a coral image.
 </div>
 
-<div class="card">
-<h2>3. Prediction</h2>
-<div class="result">
-<div>Predicted coral species</div>
-<div id="species" class="species">—</div>
-<div id="conf">Confidence: —</div>
-<div style="margin-top:12px;font-size:14px;">
-    <b>Temperature:</b> <span id="temperatureValue">2</span>
-    &nbsp;&nbsp;
-    <b>Probability:</b> <span id="probabilityMethod">Stable Softmax</span>
-</div>
-</div>
-<div>
-<span class="metric">Foreground: <b id="fg">—</b></span>
-<span class="metric">Background: <b id="bg">—</b></span>
-<span class="metric">Method: <b id="used">—</b></span>
-</div>
+<div id="modelInfo" class="model-info">
+No model loaded.
 </div>
 
-<div class="card">
-<h2>4. Top Predictions — Temperature 2, Stable Softmax</h2>
-<table><thead><tr><th>Rank</th><th>Species</th><th>Confidence</th></tr></thead>
-<tbody id="top"><tr><td colspan="3">No prediction.</td></tr></tbody></table>
 </div>
+
+
+<!-- ========================================================= -->
+<!-- STEP 2 -->
+<!-- ========================================================= -->
+
+<div class="section">
+
+<h2>Step 2 — Segmentation Before Prediction</h2>
+
+<div class="visual-grid">
+
+<div class="visual-card">
+<h3>Original Coral Image</h3>
+<canvas id="originalCanvas" width="256" height="256"></canvas>
 </div>
+
+<div class="visual-card">
+<h3>Segmentation Mask</h3>
+<canvas id="maskCanvas" width="256" height="256"></canvas>
+</div>
+
+<div class="visual-card">
+<h3>Segmented Coral Input</h3>
+<canvas id="segmentedCanvas" width="256" height="256"></canvas>
+</div>
+
+</div>
+
+<div class="explanation" style="margin-top:18px;">
+<b>Processing order:</b>
+Original image → segmentation → background suppression →
+256 × 256 × 3 input → TFLite CNN → raw output →
+temperature scaling → stable Softmax → prediction.
+</div>
+
+</div>
+
+
+<!-- ========================================================= -->
+<!-- STEP 3 -->
+<!-- ========================================================= -->
+
+<div class="section">
+
+<h2>Step 3 — Prediction Result</h2>
+
+<div id="result" class="result">
+
+<div class="result-title">
+Prediction Result
+</div>
+
+<p style="text-align:center;">
+Run segmentation and prediction to display the result.
+</p>
+
+</div>
+
+</div>
+
+
+<!-- ========================================================= -->
+<!-- STEP 4 -->
+<!-- ========================================================= -->
+
+<div class="section">
+
+<h2>Step 4 — Top 5 Predictions</h2>
+
+<div id="predictions" class="predictions">
+No prediction yet.
+</div>
+
+</div>
+
+</div>
+
 
 <script>
-let MODEL=null,LABELS=[],READY={m:false,l:false,i:false};
-const N=256;
-const TEMPERATURE=2;
-const PROBABILITY_METHOD="Stable Softmax";
-const $=id=>document.getElementById(id);
-const status=$("status");
+"use strict";
 
-function msg(x,err=false){status.textContent=x;status.className="status"+(err?" err":"")}
-function enable(){$("run").disabled=!(READY.m&&READY.l&&READY.i)}
+/* =========================================================
+   GLOBAL CONFIGURATION
+   ========================================================= */
 
-$("model").onchange=async e=>{
- try{
-  const f=e.target.files[0]; if(!f)return;
+let model = null;
+let labels = [];
+let modelLoaded = false;
 
-  msg("Initializing TensorFlow Lite WebAssembly runtime...");
+const inputHeight = 256;
+const inputWidth = 256;
+const inputChannels = 3;
 
-  // The TFLite Web API uses WebAssembly. Explicitly point it to the
-  // directory containing the TFLite WASM runtime files.
-  tflite.setWasmPath(
-    "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/"
-  );
+/*
+=========================================================
+IMPORTANT PREPROCESSING
 
-  // Explicitly use the CPU backend required by the TFLite web wrapper.
-  await tf.setBackend("cpu");
-  await tf.ready();
+This follows the user's reference prediction code.
 
-  msg("Reading model.tflite...");
+Pixels sent to TFLite are FLOAT32 values in the
+0–255 range.
 
-  // Passing the uploaded ArrayBuffer directly avoids blob-URL/WASM
-  // path problems in some browsers.
-  const buffer = await f.arrayBuffer();
+DO NOT divide by 255 here when the converted model
+already contains Rescaling(1/255).
+=========================================================
+*/
 
-  MODEL = await tflite.loadTFLiteModel(
-    buffer,
-    {numThreads: 1}
-  );
+const temperature = 2.0;
+const probabilityMethod = "Stable Softmax";
 
-  READY.m=true;
 
-  msg(
-    "model.tflite loaded successfully.\\n" +
-    "TensorFlow Lite WebAssembly runtime is ready."
-  );
+/* =========================================================
+   ELEMENTS
+   ========================================================= */
 
- }catch(x){
-  console.error("TFLite loading error:", x);
-  READY.m=false;
+const statusElement =
+    document.getElementById("status");
 
-  msg(
-    "Model error: " + (x && x.message ? x.message : String(x)) +
-    "\\n\\n" +
-    "If this persists, the TFLite file may use an unsupported " +
-    "operator or may not be a valid TFLite FlatBuffer.",
-    true
-  );
- }
- enable()
-};
+const modelInput =
+    document.getElementById("modelInput");
 
-$("labels").onchange=async e=>{
- try{
-  const f=e.target.files[0]; if(!f)return;
-  const d=JSON.parse(await f.text());
-  LABELS=Array.isArray(d)?d:(d.labels||d.class_names||d.classes||Object.keys(d).sort((a,b)=>+a-+b).map(k=>d[k]));
-  if(!LABELS.length)throw Error("No labels found in labels.json");
-  LABELS=LABELS.map(String);READY.l=true;msg("labels.json loaded: "+LABELS.length+" classes.");
- }catch(x){READY.l=false;msg("Labels error: "+x.message,true)} enable()
-};
+const labelsInput =
+    document.getElementById("labelsInput");
 
-$("image").onchange=e=>{
- const f=e.target.files[0];if(!f)return;
- const im=new Image();
- im.onload=()=>{ $("orig").getContext("2d").drawImage(im,0,0,N,N);READY.i=true;msg("Image loaded. Ready.");enable();URL.revokeObjectURL(im.src)}
- im.src=URL.createObjectURL(f)
-};
+const imageInput =
+    document.getElementById("imageInput");
 
-/* ---------- image utilities ---------- */
-function data(){return $("orig").getContext("2d").getImageData(0,0,N,N)}
-function hsv(r,g,b){
- r/=255;g/=255;b/=255;let mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
- if(d){if(mx===r)h=60*(((g-b)/d)%6);else if(mx===g)h=60*((b-r)/d+2);else h=60*((r-g)/d+4)}
- if(h<0)h+=360;return[h,(mx?d/mx:0)*255,mx*255]
-}
-function gray(a){let g=new Float32Array(N*N);for(let i=0;i<N*N;i++){let p=i*4;g[i]=.299*a[p]+.587*a[p+1]+.114*a[p+2]}return g}
-function clean(m){
- let z=new Uint8Array(m.length);
- for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){let c=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)c+=m[(y+dy)*N+x+dx];z[y*N+x]=c>=5?1:0}
- return z
-}
-function invertIfBorder(m){
- let b=0,t=0;for(let x=0;x<N;x++){b+=m[x]+m[(N-1)*N+x];t+=2}
- for(let y=1;y<N-1;y++){b+=m[y*N]+m[y*N+N-1];t+=2}
- if(b/t>.5)for(let i=0;i<m.length;i++)m[i]=1-m[i];return m
+const loadModelButton =
+    document.getElementById("loadModelButton");
+
+const predictButton =
+    document.getElementById("predictButton");
+
+const modelInfo =
+    document.getElementById("modelInfo");
+
+const segmentationMethod =
+    document.getElementById("segmentationMethod");
+
+const originalCanvas =
+    document.getElementById("originalCanvas");
+
+const maskCanvas =
+    document.getElementById("maskCanvas");
+
+const segmentedCanvas =
+    document.getElementById("segmentedCanvas");
+
+const resultElement =
+    document.getElementById("result");
+
+const predictionsElement =
+    document.getElementById("predictions");
+
+
+/* =========================================================
+   STATUS
+   ========================================================= */
+
+function setStatus(message, type = "") {
+
+    statusElement.textContent = message;
+
+    statusElement.className =
+        "status " + type;
 }
 
-/* HSV: suppress blue/cyan water and very dark low-saturation areas */
-function hsvSeg(d){
- let m=new Uint8Array(N*N);
- for(let i=0;i<N*N;i++){let p=i*4,h=hsv(d.data[p],d.data[p+1],d.data[p+2]);
-  let water=(h[0]>=160&&h[0]<=280&&h[1]>40),dark=h[1]<25&&h[2]<150;
-  m[i]=water||dark?0:1
- }return clean(m)
+
+/* =========================================================
+   ESCAPE HTML
+   ========================================================= */
+
+function escapeHTML(value) {
+
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
-/* LAB-like chroma proxy using a* approximation */
-function labSeg(d){
- let v=new Float32Array(N*N);
- for(let i=0;i<N*N;i++){let p=i*4,r=d.data[p],g=d.data[p+1],b=d.data[p+2];v[i]=r-(g+b)/2}
- let mn=Math.min(...v),mx=Math.max(...v),th=mn+(mx-mn)*.50,m=new Uint8Array(N*N);
- for(let i=0;i<m.length;i++)m[i]=v[i]>th?1:0;return clean(invertIfBorder(m))
-}
 
-/* Adaptive local mean */
-function adaptiveSeg(d){
- let g=gray(d.data),m=new Uint8Array(N*N),R=7,C=5;
- for(let y=0;y<N;y++)for(let x=0;x<N;x++){let s=0,c=0;
-  for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){let yy=Math.max(0,Math.min(N-1,y+dy)),xx=Math.max(0,Math.min(N-1,x+dx));s+=g[yy*N+xx];c++}
-  m[y*N+x]=g[y*N+x]>s/c-C?1:0
- }return clean(invertIfBorder(m))
-}
+/* =========================================================
+   LOAD MODEL
+   ========================================================= */
 
-/* Lightweight K-Means */
-function kmeansSeg(d){
- let pix=[];for(let i=0;i<N*N;i++){let p=i*4;pix.push([d.data[p],d.data[p+1],d.data[p+2]])}
- let c=[pix[0],pix[Math.floor(pix.length*.25)],pix[Math.floor(pix.length*.5)],pix[Math.floor(pix.length*.75)]].map(x=>x.slice()),a=new Uint8Array(pix.length);
- for(let it=0;it<6;it++){
-  for(let i=0;i<pix.length;i++){let best=0,bd=1e30;for(let k=0;k<4;k++){let dr=pix[i][0]-c[k][0],dg=pix[i][1]-c[k][1],db=pix[i][2]-c[k][2],q=dr*dr+dg*dg+db*db;if(q<bd){bd=q;best=k}}a[i]=best}
-  let s=Array.from({length:4},()=>[0,0,0,0]);for(let i=0;i<pix.length;i++){let k=a[i];s[k][0]+=pix[i][0];s[k][1]+=pix[i][1];s[k][2]+=pix[i][2];s[k][3]++}
-  for(let k=0;k<4;k++)if(s[k][3])c[k]=[s[k][0]/s[k][3],s[k][1]/s[k][3],s[k][2]/s[k][3]]
- }
- let kbest=0,score=-1e30;for(let k=0;k<4;k++){let q=c[k][0]-c[k][2]+Math.abs(c[k][0]-c[k][1])*.25;if(q>score){score=q;kbest=k}}
- let m=new Uint8Array(N*N);for(let i=0;i<m.length;i++)m[i]=a[i]===kbest?1:0;return clean(m)
-}
+loadModelButton.addEventListener(
+    "click",
+    async function () {
 
-/* Watershed-style edge/foreground approximation for browser deployment */
-function watershedSeg(d){
- let g=gray(d.data),m=new Uint8Array(N*N);
- for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){
-  let q=Math.abs(g[y*N+x+1]-g[y*N+x-1])+Math.abs(g[(y+1)*N+x]-g[(y-1)*N+x]);
-  m[y*N+x]=q>35?1:0
- }return clean(m)
-}
+        try {
 
-/* Browser-safe GrabCut-like foreground approximation */
-function grabcutSeg(d){
- let a=hsvSeg(d),b=labSeg(d),m=new Uint8Array(N*N);
- for(let i=0;i<m.length;i++)m[i]=a[i]&&b[i]?1:0;return clean(m)
-}
-function combinedSeg(d){
- let ms=[grabcutSeg(d),hsvSeg(d),labSeg(d),adaptiveSeg(d),kmeansSeg(d),watershedSeg(d)],m=new Uint8Array(N*N);
- for(let i=0;i<m.length;i++){let v=0;for(const q of ms)v+=q[i];m[i]=v>=2?1:0}return clean(m)
-}
-function segment(d,method){
- if(method==="hsv")return hsvSeg(d);
- if(method==="lab")return labSeg(d);
- if(method==="adaptive")return adaptiveSeg(d);
- if(method==="kmeans")return kmeansSeg(d);
- if(method==="watershed")return watershedSeg(d);
- if(method==="grabcut")return grabcutSeg(d);
- return combinedSeg(d)
-}
+            const modelFile =
+                modelInput.files[0];
 
-/* ---------- canvas output ---------- */
-function drawMask(m){
- let c=$("mask").getContext("2d"),o=c.createImageData(N,N);
- for(let i=0;i<m.length;i++){let p=i*4,v=m[i]?255:0;o.data[p]=o.data[p+1]=o.data[p+2]=v;o.data[p+3]=255}
- c.putImageData(o,0,0)
-}
-function drawSegmented(d,m){
- let c=$("seg").getContext("2d"),o=c.createImageData(N,N);
- for(let i=0;i<m.length;i++){let p=i*4;if(m[i]){o.data[p]=d.data[p];o.data[p+1]=d.data[p+1];o.data[p+2]=d.data[p+2]}o.data[p+3]=255}
- c.putImageData(o,0,0);return o
-}
-function tensorFromImage(d){
- let v=new Float32Array(N*N*3),j=0;
- for(let i=0;i<N*N;i++){let p=i*4;v[j++]=d.data[p]/255;v[j++]=d.data[p+1]/255;v[j++]=d.data[p+2]/255}
- return tf.tensor(v,[1,N,N,3],"float32")
-}
-function outputTensor(o){
- if(o&&typeof o.data==="function")return o;
- if(Array.isArray(o))return o.find(x=>x&&typeof x.data==="function");
- if(o&&typeof o==="object")return Object.values(o).find(x=>x&&typeof x.data==="function");
- return null
-}
-function probabilities(a){
- /*
-  * Temperature-scaled stable Softmax.
-  *
-  * T = 2 makes the probability distribution less sharp
-  * than ordinary Softmax (T = 1).
-  *
-  * For logits z_i:
-  *
-  * P_i = exp(z_i / T) / sum_j exp(z_j / T)
-  *
-  * The maximum logit is subtracted before exponentiation
-  * for numerical stability.
-  */
- const T = TEMPERATURE;
+            const labelsFile =
+                labelsInput.files[0];
 
- let mx = Math.max(...a);
+            if (!modelFile) {
+                throw new Error(
+                    "Please select model.tflite."
+                );
+            }
 
- let e = a.map(
-     x => Math.exp((x - mx) / T)
- );
+            if (!labelsFile) {
+                throw new Error(
+                    "Please select labels.json."
+                );
+            }
 
- let es = e.reduce(
-     (x, y) => x + y,
-     0
- );
+            loadModelButton.disabled = true;
+            predictButton.disabled = true;
 
- return e.map(
-     x => x / es
- );
-}
-function showPrediction(a){
- let q=a.map((v,i)=>({v,i})).sort((x,y)=>y.v-x.v),best=q[0],name=LABELS[best.i]??("Class "+best.i);
- $("species").textContent=name;$("conf").textContent="Confidence: "+(best.v*100).toFixed(2)+"%";
- $("top").innerHTML=q.slice(0,5).map((x,r)=>`<tr><td>${r+1}</td><td>${esc(LABELS[x.i]??("Class "+x.i))}</td><td>${(x.v*100).toFixed(2)}%</td></tr>`).join("")
-}
-function esc(s){let d=document.createElement("div");d.textContent=s;return d.innerHTML}
+            modelLoaded = false;
 
-/* ---------- main ---------- */
-$("run").onclick=async()=>{
- $("run").disabled=true;
- try{
-  const method=$("method").value;
-  msg("Step 1/3: segmenting image using "+method+"...");
-  await tf.nextFrame();
-  const d=data(),m=segment(d,method);
-  drawMask(m);
-  const seg=drawSegmented(d,m);
-  let fg=0;for(const x of m)fg+=x;
-  const fgp=fg/m.length*100;
-  $("fg").textContent=fgp.toFixed(2)+"%";
-  $("bg").textContent=(100-fgp).toFixed(2)+"%";
-  $("used").textContent=method.toUpperCase();
+            setStatus(
+                "Reading labels.json...",
+                "loading"
+            );
 
-  msg("Step 2/3: background suppressed.\nStep 3/3: applying model.tflite to the segmented image...");
-  await tf.nextFrame();
+            /* -----------------------------------------
+               READ LABELS
+               ----------------------------------------- */
 
-  const input=tensorFromImage(seg);
-  let out=await MODEL.predict(input);
-  input.dispose();
-  const t=outputTensor(out);
-  if(!t)throw Error("TFLite output tensor could not be read.");
-  const vals=Array.from(await t.data());
-  showPrediction(probabilities(vals));
+            const labelsText =
+                await labelsFile.text();
 
-  msg(
-    "Completed.\\n\\n" +
-    "Pipeline:\\n" +
-    "Original → Segmentation → Background suppression → model.tflite → Prediction\\n\\n" +
-    "Temperature: " + TEMPERATURE + "\\n" +
-    "Probability: " + PROBABILITY_METHOD
+            const labelsData =
+                JSON.parse(labelsText);
+
+            if (Array.isArray(labelsData)) {
+
+                labels =
+                    labelsData.map(String);
+
+            } else if (
+                labelsData &&
+                Array.isArray(labelsData.labels)
+            ) {
+
+                labels =
+                    labelsData.labels.map(String);
+
+            } else if (
+                labelsData &&
+                Array.isArray(labelsData.class_names)
+            ) {
+
+                labels =
+                    labelsData.class_names.map(String);
+
+            } else if (
+                labelsData &&
+                Array.isArray(labelsData.classes)
+            ) {
+
+                labels =
+                    labelsData.classes.map(String);
+
+            } else if (
+                labelsData &&
+                typeof labelsData === "object"
+            ) {
+
+                labels =
+                    Object.keys(labelsData)
+                        .sort(function(a, b) {
+
+                            const na =
+                                Number(a);
+
+                            const nb =
+                                Number(b);
+
+                            if (
+                                Number.isFinite(na) &&
+                                Number.isFinite(nb)
+                            ) {
+                                return na - nb;
+                            }
+
+                            return a.localeCompare(b);
+                        })
+                        .map(function(key) {
+
+                            return String(
+                                labelsData[key]
+                            );
+
+                        });
+
+            } else {
+
+                throw new Error(
+                    "labels.json must contain an array or object."
+                );
+            }
+
+            if (!labels.length) {
+
+                throw new Error(
+                    "labels.json contains no labels."
+                );
+            }
+
+
+            /* -----------------------------------------
+               INITIALIZE TFLITE
+               ----------------------------------------- */
+
+            setStatus(
+                "Initializing TensorFlow Lite WebAssembly runtime...",
+                "loading"
+            );
+
+            /*
+             * The TFLite web runtime is WebAssembly based.
+             * alpha.9 is used for compatibility.
+             */
+
+            if (
+                typeof tflite === "undefined"
+            ) {
+
+                throw new Error(
+                    "TensorFlow Lite runtime was not loaded. " +
+                    "Check your internet connection."
+                );
+            }
+
+
+            /* -----------------------------------------
+               LOAD MODEL FROM ARRAYBUFFER
+               ----------------------------------------- */
+
+            const modelBuffer =
+                await modelFile.arrayBuffer();
+
+            setStatus(
+                "Loading TensorFlow Lite model...",
+                "loading"
+            );
+
+            model =
+                await tflite.loadTFLiteModel(
+                    modelBuffer
+                );
+
+            if (!model) {
+
+                throw new Error(
+                    "TFLite model could not be loaded."
+                );
+            }
+
+
+            /* -----------------------------------------
+               MODEL INFORMATION
+               ----------------------------------------- */
+
+            modelLoaded = true;
+
+            predictButton.disabled = false;
+
+            modelInfo.innerHTML = `
+
+                <strong>Model Status:</strong>
+                ✓ Loaded Successfully
+                <br>
+
+                <strong>Model File:</strong>
+                ${escapeHTML(modelFile.name)}
+                <br>
+
+                <strong>Input Size:</strong>
+                ${inputWidth} ×
+                ${inputHeight} ×
+                ${inputChannels}
+                <br>
+
+                <strong>Number of Classes:</strong>
+                ${labels.length}
+                <br>
+
+                <strong>Temperature:</strong>
+                ${temperature}
+                <br>
+
+                <strong>Probability:</strong>
+                ${probabilityMethod}
+                <br>
+
+                <strong>Preprocessing:</strong>
+                FLOAT32 0–255
+                <br>
+
+                <strong>Runtime:</strong>
+                TensorFlow Lite / WebAssembly
+
+            `;
+
+            setStatus(
+                "✓ TFLite AI Model Loaded Successfully",
+                "success"
+            );
+
+        } catch (error) {
+
+            console.error(
+                "TFLite loading error:",
+                error
+            );
+
+            model = null;
+            labels = [];
+            modelLoaded = false;
+
+            predictButton.disabled = true;
+
+            setStatus(
+                "✗ TFLite Model Failed to Load\n\n" +
+                error.message,
+                "error"
+            );
+
+            modelInfo.innerHTML =
+                "<strong>Error:</strong><br>" +
+                escapeHTML(
+                    error.message
+                );
+
+        } finally {
+
+            loadModelButton.disabled = false;
+        }
+    }
 );
- }catch(e){console.error(e);msg("Processing error:\n"+e.message,true)}
- finally{enable()}
+
+
+/* =========================================================
+   IMAGE LOADING
+   ========================================================= */
+
+imageInput.addEventListener(
+    "change",
+    function () {
+
+        const file =
+            this.files[0];
+
+        if (!file) return;
+
+        if (
+            !file.type.startsWith("image/")
+        ) {
+
+            setStatus(
+                "Please select a valid image file.",
+                "error"
+            );
+
+            return;
+        }
+
+        const image =
+            new Image();
+
+        const url =
+            URL.createObjectURL(file);
+
+        image.onload =
+            function () {
+
+                const ctx =
+                    originalCanvas
+                        .getContext("2d");
+
+                ctx.clearRect(
+                    0,
+                    0,
+                    inputWidth,
+                    inputHeight
+                );
+
+                /*
+                 * This creates the same 256 × 256
+                 * image used by the model.
+                 */
+
+                ctx.drawImage(
+                    image,
+                    0,
+                    0,
+                    inputWidth,
+                    inputHeight
+                );
+
+                URL.revokeObjectURL(url);
+
+                if (modelLoaded) {
+
+                    predictButton.disabled =
+                        false;
+                }
+
+                setStatus(
+                    "✓ Coral image loaded. " +
+                    "Ready for segmentation and prediction.",
+                    "success"
+                );
+            };
+
+        image.onerror =
+            function () {
+
+                URL.revokeObjectURL(url);
+
+                setStatus(
+                    "Could not load the selected image.",
+                    "error"
+                );
+            };
+
+        image.src = url;
+    }
+);
+
+
+/* =========================================================
+   IMAGE DATA
+   ========================================================= */
+
+function getOriginalImageData() {
+
+    const ctx =
+        originalCanvas.getContext("2d");
+
+    return ctx.getImageData(
+        0,
+        0,
+        inputWidth,
+        inputHeight
+    );
 }
+
+
+/* =========================================================
+   RGB → HSV
+   ========================================================= */
+
+function rgbToHSV(r, g, b) {
+
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max =
+        Math.max(r, g, b);
+
+    const min =
+        Math.min(r, g, b);
+
+    const delta =
+        max - min;
+
+    let h = 0;
+
+    if (delta !== 0) {
+
+        if (max === r) {
+
+            h =
+                60 *
+                (((g - b) / delta) % 6);
+
+        } else if (max === g) {
+
+            h =
+                60 *
+                (((b - r) / delta) + 2);
+
+        } else {
+
+            h =
+                60 *
+                (((r - g) / delta) + 4);
+        }
+    }
+
+    if (h < 0) {
+        h += 360;
+    }
+
+    const s =
+        max === 0
+            ? 0
+            : delta / max;
+
+    const v =
+        max;
+
+    return {
+        h: h,
+        s: s * 255,
+        v: v * 255
+    };
+}
+
+
+/* =========================================================
+   RGB → APPROXIMATE LAB A CHANNEL
+   ========================================================= */
+
+function rgbToLab(r, g, b) {
+
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    r =
+        r > 0.04045
+            ? Math.pow(
+                (r + 0.055) / 1.055,
+                2.4
+            )
+            : r / 12.92;
+
+    g =
+        g > 0.04045
+            ? Math.pow(
+                (g + 0.055) / 1.055,
+                2.4
+            )
+            : g / 12.92;
+
+    b =
+        b > 0.04045
+            ? Math.pow(
+                (b + 0.055) / 1.055,
+                2.4
+            )
+            : b / 12.92;
+
+    let x =
+        (
+            r * 0.4124 +
+            g * 0.3576 +
+            b * 0.1805
+        ) / 0.95047;
+
+    let y =
+        (
+            r * 0.2126 +
+            g * 0.7152 +
+            b * 0.0722
+        );
+
+    let z =
+        (
+            r * 0.0193 +
+            g * 0.1192 +
+            b * 0.9505
+        ) / 1.08883;
+
+    function f(t) {
+
+        return t > 0.008856
+            ? Math.cbrt(t)
+            : 7.787 * t + 16 / 116;
+    }
+
+    x = f(x);
+    y = f(y);
+    z = f(z);
+
+    return {
+        l: 116 * y - 16,
+        a: 500 * (x - y),
+        b: 200 * (y - z)
+    };
+}
+
+
+/* =========================================================
+   GRAYSCALE
+   ========================================================= */
+
+function grayscale(data) {
+
+    const gray =
+        new Float32Array(
+            inputWidth *
+            inputHeight
+        );
+
+    for (
+        let i = 0;
+        i < gray.length;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        gray[i] =
+            0.299 * data[p] +
+            0.587 * data[p + 1] +
+            0.114 * data[p + 2];
+    }
+
+    return gray;
+}
+
+
+/* =========================================================
+   MORPHOLOGICAL MAJORITY FILTER
+   ========================================================= */
+
+function morphology(mask) {
+
+    const output =
+        new Uint8Array(
+            mask.length
+        );
+
+    for (
+        let y = 1;
+        y < inputHeight - 1;
+        y++
+    ) {
+
+        for (
+            let x = 1;
+            x < inputWidth - 1;
+            x++
+        ) {
+
+            let count = 0;
+
+            for (
+                let dy = -1;
+                dy <= 1;
+                dy++
+            ) {
+
+                for (
+                    let dx = -1;
+                    dx <= 1;
+                    dx++
+                ) {
+
+                    count +=
+                        mask[
+                            (y + dy) *
+                            inputWidth +
+                            (x + dx)
+                        ];
+                }
+            }
+
+            output[
+                y * inputWidth + x
+            ] =
+                count >= 5
+                    ? 1
+                    : 0;
+        }
+    }
+
+    return output;
+}
+
+
+/* =========================================================
+   BORDER CHECK
+   ========================================================= */
+
+function invertIfBorderForeground(mask) {
+
+    let foreground = 0;
+    let total = 0;
+
+    for (
+        let x = 0;
+        x < inputWidth;
+        x++
+    ) {
+
+        foreground += mask[x];
+
+        foreground +=
+            mask[
+                (inputHeight - 1) *
+                inputWidth +
+                x
+            ];
+
+        total += 2;
+    }
+
+    for (
+        let y = 1;
+        y < inputHeight - 1;
+        y++
+    ) {
+
+        foreground +=
+            mask[
+                y * inputWidth
+            ];
+
+        foreground +=
+            mask[
+                y * inputWidth +
+                inputWidth - 1
+            ];
+
+        total += 2;
+    }
+
+    if (
+        foreground / total > 0.5
+    ) {
+
+        for (
+            let i = 0;
+            i < mask.length;
+            i++
+        ) {
+
+            mask[i] =
+                1 - mask[i];
+        }
+    }
+
+    return mask;
+}
+
+
+/* =========================================================
+   HSV SEGMENTATION
+   ========================================================= */
+
+function segmentHSV(imageData) {
+
+    const mask =
+        new Uint8Array(
+            inputWidth *
+            inputHeight
+        );
+
+    for (
+        let i = 0;
+        i < mask.length;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        const hsv =
+            rgbToHSV(
+                imageData.data[p],
+                imageData.data[p + 1],
+                imageData.data[p + 2]
+            );
+
+        const blueWater =
+            hsv.h >= 200 &&
+            hsv.h <= 280 &&
+            hsv.s > 40;
+
+        const cyanWater =
+            hsv.h >= 160 &&
+            hsv.h < 200 &&
+            hsv.s > 45;
+
+        const darkBackground =
+            hsv.s < 25 &&
+            hsv.v < 150;
+
+        mask[i] =
+            (
+                !blueWater &&
+                !cyanWater &&
+                !darkBackground
+            )
+                ? 1
+                : 0;
+    }
+
+    return morphology(mask);
+}
+
+
+/* =========================================================
+   LAB + OTSU-LIKE SEGMENTATION
+   ========================================================= */
+
+function segmentLAB(imageData) {
+
+    const values =
+        new Float32Array(
+            inputWidth *
+            inputHeight
+        );
+
+    for (
+        let i = 0;
+        i < values.length;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        const lab =
+            rgbToLab(
+                imageData.data[p],
+                imageData.data[p + 1],
+                imageData.data[p + 2]
+            );
+
+        values[i] =
+            lab.a;
+    }
+
+    let min =
+        Infinity;
+
+    let max =
+        -Infinity;
+
+    for (
+        const value of values
+    ) {
+
+        min =
+            Math.min(
+                min,
+                value
+            );
+
+        max =
+            Math.max(
+                max,
+                value
+            );
+    }
+
+    const threshold =
+        min +
+        (max - min) * 0.50;
+
+    const mask =
+        new Uint8Array(
+            values.length
+        );
+
+    for (
+        let i = 0;
+        i < values.length;
+        i++
+    ) {
+
+        mask[i] =
+            values[i] >
+            threshold
+                ? 1
+                : 0;
+    }
+
+    return morphology(
+        invertIfBorderForeground(mask)
+    );
+}
+
+
+/* =========================================================
+   ADAPTIVE SEGMENTATION
+   ========================================================= */
+
+function segmentAdaptive(imageData) {
+
+    const gray =
+        grayscale(
+            imageData.data
+        );
+
+    const mask =
+        new Uint8Array(
+            gray.length
+        );
+
+    const radius = 7;
+    const C = 5;
+
+    for (
+        let y = 0;
+        y < inputHeight;
+        y++
+    ) {
+
+        for (
+            let x = 0;
+            x < inputWidth;
+            x++
+        ) {
+
+            let sum = 0;
+            let count = 0;
+
+            for (
+                let dy = -radius;
+                dy <= radius;
+                dy++
+            ) {
+
+                for (
+                    let dx = -radius;
+                    dx <= radius;
+                    dx++
+                ) {
+
+                    const yy =
+                        Math.max(
+                            0,
+                            Math.min(
+                                inputHeight - 1,
+                                y + dy
+                            )
+                        );
+
+                    const xx =
+                        Math.max(
+                            0,
+                            Math.min(
+                                inputWidth - 1,
+                                x + dx
+                            )
+                        );
+
+                    sum +=
+                        gray[
+                            yy * inputWidth + xx
+                        ];
+
+                    count++;
+                }
+            }
+
+            const localMean =
+                sum / count;
+
+            mask[
+                y * inputWidth + x
+            ] =
+                gray[
+                    y * inputWidth + x
+                ] >
+                localMean - C
+                    ? 1
+                    : 0;
+        }
+    }
+
+    return morphology(
+        invertIfBorderForeground(mask)
+    );
+}
+
+
+/* =========================================================
+   K-MEANS
+   ========================================================= */
+
+function segmentKMeans(imageData) {
+
+    const pixels = [];
+
+    const total =
+        inputWidth *
+        inputHeight;
+
+    for (
+        let i = 0;
+        i < total;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        pixels.push([
+            imageData.data[p],
+            imageData.data[p + 1],
+            imageData.data[p + 2]
+        ]);
+    }
+
+    const K = 4;
+
+    let centers = [
+
+        pixels[0],
+
+        pixels[
+            Math.floor(
+                total * 0.25
+            )
+        ],
+
+        pixels[
+            Math.floor(
+                total * 0.50
+            )
+        ],
+
+        pixels[
+            Math.floor(
+                total * 0.75
+            )
+        ]
+
+    ].map(
+        p => p.slice()
+    );
+
+    const assignments =
+        new Uint8Array(total);
+
+    for (
+        let iteration = 0;
+        iteration < 6;
+        iteration++
+    ) {
+
+        for (
+            let i = 0;
+            i < total;
+            i++
+        ) {
+
+            let best = 0;
+            let bestDistance =
+                Infinity;
+
+            for (
+                let k = 0;
+                k < K;
+                k++
+            ) {
+
+                const dr =
+                    pixels[i][0] -
+                    centers[k][0];
+
+                const dg =
+                    pixels[i][1] -
+                    centers[k][1];
+
+                const db =
+                    pixels[i][2] -
+                    centers[k][2];
+
+                const distance =
+                    dr * dr +
+                    dg * dg +
+                    db * db;
+
+                if (
+                    distance <
+                    bestDistance
+                ) {
+
+                    bestDistance =
+                        distance;
+
+                    best = k;
+                }
+            }
+
+            assignments[i] =
+                best;
+        }
+
+        const sums =
+            Array.from(
+                {length: K},
+                () => [0, 0, 0, 0]
+            );
+
+        for (
+            let i = 0;
+            i < total;
+            i++
+        ) {
+
+            const k =
+                assignments[i];
+
+            sums[k][0] +=
+                pixels[i][0];
+
+            sums[k][1] +=
+                pixels[i][1];
+
+            sums[k][2] +=
+                pixels[i][2];
+
+            sums[k][3]++;
+        }
+
+        for (
+            let k = 0;
+            k < K;
+            k++
+        ) {
+
+            if (
+                sums[k][3] > 0
+            ) {
+
+                centers[k] = [
+
+                    sums[k][0] /
+                    sums[k][3],
+
+                    sums[k][1] /
+                    sums[k][3],
+
+                    sums[k][2] /
+                    sums[k][3]
+
+                ];
+            }
+        }
+    }
+
+    let bestCluster = 0;
+    let bestScore =
+        -Infinity;
+
+    for (
+        let k = 0;
+        k < K;
+        k++
+    ) {
+
+        const score =
+            (
+                centers[k][0] -
+                centers[k][2]
+            )
+            +
+            Math.abs(
+                centers[k][0] -
+                centers[k][1]
+            ) * 0.25;
+
+        if (
+            score >
+            bestScore
+        ) {
+
+            bestScore =
+                score;
+
+            bestCluster =
+                k;
+        }
+    }
+
+    const mask =
+        new Uint8Array(total);
+
+    for (
+        let i = 0;
+        i < total;
+        i++
+    ) {
+
+        mask[i] =
+            assignments[i] ===
+            bestCluster
+                ? 1
+                : 0;
+    }
+
+    return morphology(mask);
+}
+
+
+/* =========================================================
+   WATERSHED-STYLE EDGE SEGMENTATION
+   ========================================================= */
+
+function segmentWatershed(imageData) {
+
+    const gray =
+        grayscale(
+            imageData.data
+        );
+
+    const mask =
+        new Uint8Array(
+            gray.length
+        );
+
+    for (
+        let y = 1;
+        y < inputHeight - 1;
+        y++
+    ) {
+
+        for (
+            let x = 1;
+            x < inputWidth - 1;
+            x++
+        ) {
+
+            const left =
+                gray[
+                    y * inputWidth +
+                    x - 1
+                ];
+
+            const right =
+                gray[
+                    y * inputWidth +
+                    x + 1
+                ];
+
+            const up =
+                gray[
+                    (y - 1) *
+                    inputWidth +
+                    x
+                ];
+
+            const down =
+                gray[
+                    (y + 1) *
+                    inputWidth +
+                    x
+                ];
+
+            const gradient =
+                Math.abs(
+                    right - left
+                )
+                +
+                Math.abs(
+                    down - up
+                );
+
+            mask[
+                y * inputWidth + x
+            ] =
+                gradient > 35
+                    ? 1
+                    : 0;
+        }
+    }
+
+    return morphology(mask);
+}
+
+
+/* =========================================================
+   GRABCUT-LIKE SEGMENTATION
+   ========================================================= */
+
+function segmentGrabCutLike(
+    imageData
+) {
+
+    const hsv =
+        segmentHSV(
+            imageData
+        );
+
+    const lab =
+        segmentLAB(
+            imageData
+        );
+
+    const mask =
+        new Uint8Array(
+            hsv.length
+        );
+
+    for (
+        let i = 0;
+        i < mask.length;
+        i++
+    ) {
+
+        mask[i] =
+            hsv[i] &&
+            lab[i]
+                ? 1
+                : 0;
+    }
+
+    return morphology(mask);
+}
+
+
+/* =========================================================
+   COMBINED SEGMENTATION
+   ========================================================= */
+
+function segmentCombined(
+    imageData
+) {
+
+    const masks = [
+
+        segmentHSV(
+            imageData
+        ),
+
+        segmentLAB(
+            imageData
+        ),
+
+        segmentAdaptive(
+            imageData
+        ),
+
+        segmentKMeans(
+            imageData
+        ),
+
+        segmentGrabCutLike(
+            imageData
+        )
+
+    ];
+
+    const output =
+        new Uint8Array(
+            masks[0].length
+        );
+
+    for (
+        let i = 0;
+        i < output.length;
+        i++
+    ) {
+
+        let votes = 0;
+
+        for (
+            const mask of masks
+        ) {
+
+            votes +=
+                mask[i];
+        }
+
+        /*
+         * Foreground if at least 2 methods
+         * agree that the pixel belongs to
+         * the coral region.
+         */
+
+        output[i] =
+            votes >= 2
+                ? 1
+                : 0;
+    }
+
+    return morphology(output);
+}
+
+
+/* =========================================================
+   SEGMENTATION SELECTOR
+   ========================================================= */
+
+function getSegmentationMask(
+    imageData,
+    method
+) {
+
+    switch (method) {
+
+        case "hsv":
+
+            return segmentHSV(
+                imageData
+            );
+
+        case "lab":
+
+            return segmentLAB(
+                imageData
+            );
+
+        case "adaptive":
+
+            return segmentAdaptive(
+                imageData
+            );
+
+        case "kmeans":
+
+            return segmentKMeans(
+                imageData
+            );
+
+        case "watershed":
+
+            return segmentWatershed(
+                imageData
+            );
+
+        case "grabcut":
+
+            return segmentGrabCutLike(
+                imageData
+            );
+
+        case "combined":
+
+        default:
+
+            return segmentCombined(
+                imageData
+            );
+    }
+}
+
+
+/* =========================================================
+   DRAW MASK
+   ========================================================= */
+
+function drawMask(mask) {
+
+    const ctx =
+        maskCanvas.getContext("2d");
+
+    const output =
+        ctx.createImageData(
+            inputWidth,
+            inputHeight
+        );
+
+    for (
+        let i = 0;
+        i < mask.length;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        const value =
+            mask[i]
+                ? 255
+                : 0;
+
+        output.data[p] =
+            value;
+
+        output.data[p + 1] =
+            value;
+
+        output.data[p + 2] =
+            value;
+
+        output.data[p + 3] =
+            255;
+    }
+
+    ctx.putImageData(
+        output,
+        0,
+        0
+    );
+}
+
+
+/* =========================================================
+   CREATE SEGMENTED IMAGE
+   ========================================================= */
+
+function createSegmentedImage(
+    imageData,
+    mask
+) {
+
+    const output =
+        new ImageData(
+            inputWidth,
+            inputHeight
+        );
+
+    for (
+        let i = 0;
+        i < mask.length;
+        i++
+    ) {
+
+        const p = i * 4;
+
+        if (mask[i]) {
+
+            /*
+             * Keep the original coral pixel.
+             */
+
+            output.data[p] =
+                imageData.data[p];
+
+            output.data[p + 1] =
+                imageData.data[p + 1];
+
+            output.data[p + 2] =
+                imageData.data[p + 2];
+
+        } else {
+
+            /*
+             * Suppress background to black.
+             */
+
+            output.data[p] = 0;
+            output.data[p + 1] = 0;
+            output.data[p + 2] = 0;
+        }
+
+        output.data[p + 3] =
+            255;
+    }
+
+    const ctx =
+        segmentedCanvas.getContext("2d");
+
+    ctx.putImageData(
+        output,
+        0,
+        0
+    );
+
+    return output;
+}
+
+
+/* =========================================================
+   PREPARE TFLITE INPUT
+
+   THIS MATCHES THE USER'S REFERENCE CODE.
+
+   256 × 256 × 3
+   FLOAT32
+   PIXEL RANGE = 0–255
+
+   NO /255 HERE.
+   ========================================================= */
+
+function createModelInputTensor(
+    imageData
+) {
+
+    const values =
+        new Float32Array(
+            inputWidth *
+            inputHeight *
+            inputChannels
+        );
+
+    let j = 0;
+
+    for (
+        let i = 0;
+        i <
+        inputWidth *
+        inputHeight;
+        i++
+    ) {
+
+        const p =
+            i * 4;
+
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT divide by 255.
+         *
+         * This matches the uploaded reference
+         * prediction code.
+         */
+
+        values[j++] =
+            imageData.data[p];
+
+        values[j++] =
+            imageData.data[p + 1];
+
+        values[j++] =
+            imageData.data[p + 2];
+    }
+
+    return tf.tensor(
+        values,
+        [
+            1,
+            inputHeight,
+            inputWidth,
+            inputChannels
+        ],
+        "float32"
+    );
+}
+
+
+/* =========================================================
+   RUN TFLITE
+   ========================================================= */
+
+async function runTFLitePrediction(
+    segmentedImage
+) {
+
+    let inputTensor = null;
+    let predictionTensor = null;
+
+    try {
+
+        /*
+         * -------------------------------------------
+         * CREATE INPUT
+         * -------------------------------------------
+         */
+
+        inputTensor =
+            createModelInputTensor(
+                segmentedImage
+            );
+
+        console.log(
+            "Final input tensor:",
+            inputTensor.shape
+        );
+
+        console.log(
+            "Input dtype:",
+            inputTensor.dtype
+        );
+
+        /*
+         * -------------------------------------------
+         * RAW TFLITE OUTPUT
+         * -------------------------------------------
+         */
+
+        predictionTensor =
+            model.predict(
+                inputTensor
+            );
+
+        console.log(
+            "Raw prediction tensor:",
+            predictionTensor
+        );
+
+        const rawOutput =
+            await predictionTensor.data();
+
+        const logits =
+            Array.from(
+                rawOutput
+            );
+
+        console.log(
+            "RAW TFLITE OUTPUT:",
+            logits
+        );
+
+        if (
+            logits.length === 0
+        ) {
+
+            throw new Error(
+                "The TFLite model returned an empty output."
+            );
+        }
+
+        /*
+         * -------------------------------------------
+         * TEMPERATURE SCALING
+         *
+         * z_i' = z_i / T
+         *
+         * T = 2
+         * -------------------------------------------
+         */
+
+        const scaledLogits =
+            logits.map(
+                function(x) {
+
+                    return (
+                        x /
+                        temperature
+                    );
+                }
+            );
+
+        /*
+         * -------------------------------------------
+         * STABLE SOFTMAX
+         *
+         * P_i =
+         *
+         * exp(z_i' - max(z'))
+         * ------------------
+         * sum exp(z_j' - max(z'))
+         * -------------------------------------------
+         */
+
+        const maxLogit =
+            Math.max(
+                ...scaledLogits
+            );
+
+        const expValues =
+            scaledLogits.map(
+                function(x) {
+
+                    return Math.exp(
+                        x -
+                        maxLogit
+                    );
+                }
+            );
+
+        const sumExp =
+            expValues.reduce(
+                function(sum, x) {
+
+                    return (
+                        sum +
+                        x
+                    );
+
+                },
+                0
+            );
+
+        const probabilities =
+            expValues.map(
+                function(x) {
+
+                    return (
+                        x /
+                        sumExp
+                    );
+                }
+            );
+
+        /*
+         * -------------------------------------------
+         * CHECK PROBABILITY SUM
+         * -------------------------------------------
+         */
+
+        const probabilityTotal =
+            probabilities.reduce(
+                function(sum, value) {
+
+                    return (
+                        sum +
+                        value
+                    );
+
+                },
+                0
+            );
+
+        /*
+         * -------------------------------------------
+         * FIND TOP CLASS
+         * -------------------------------------------
+         */
+
+        let maxIndex = 0;
+
+        for (
+            let i = 1;
+            i < probabilities.length;
+            i++
+        ) {
+
+            if (
+                probabilities[i] >
+                probabilities[maxIndex]
+            ) {
+
+                maxIndex =
+                    i;
+            }
+        }
+
+        const predictedSpecies =
+            labels[maxIndex] ||
+            "Unknown";
+
+        const confidence =
+            Math.max(
+                0,
+                Math.min(
+                    100,
+                    probabilities[maxIndex] *
+                    100
+                )
+            );
+
+        /*
+         * -------------------------------------------
+         * SORT TOP 5
+         * -------------------------------------------
+         */
+
+        const indices =
+            Array.from(
+                probabilities
+            )
+            .map(
+                function(value, index) {
+
+                    return {
+                        index:
+                            index,
+                        value:
+                            value
+                    };
+
+                }
+            )
+            .sort(
+                function(a, b) {
+
+                    return (
+                        b.value -
+                        a.value
+                    );
+                }
+            )
+            .slice(
+                0,
+                Math.min(
+                    5,
+                    probabilities.length
+                )
+            );
+
+        return {
+            predictedSpecies:
+                predictedSpecies,
+
+            confidence:
+                confidence,
+
+            probabilities:
+                probabilities,
+
+            probabilityTotal:
+                probabilityTotal,
+
+            top:
+                indices
+        };
+
+    } finally {
+
+        /*
+         * -------------------------------------------
+         * MEMORY CLEANUP
+         * -------------------------------------------
+         */
+
+        if (
+            inputTensor
+        ) {
+
+            inputTensor.dispose();
+        }
+
+        if (
+            predictionTensor &&
+            typeof predictionTensor.dispose ===
+            "function"
+        ) {
+
+            predictionTensor.dispose();
+        }
+    }
+}
+
+
+/* =========================================================
+   DISPLAY RESULT
+   ========================================================= */
+
+function displayResult(
+    result,
+    foregroundPercent,
+    backgroundPercent,
+    method,
+    inferenceTime
+) {
+
+    resultElement.innerHTML = `
+
+        <div class="result-title">
+            Predicted Coral Species
+        </div>
+
+        <div class="species">
+            ${escapeHTML(
+                result.predictedSpecies
+            )}
+        </div>
+
+        <div class="confidence">
+            Confidence:
+            <strong>
+                ${result.confidence.toFixed(2)}%
+            </strong>
+        </div>
+
+        <div class="meta">
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Temperature
+                </div>
+                <div class="meta-value">
+                    ${temperature}
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Probability
+                </div>
+                <div class="meta-value">
+                    Stable Softmax
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Input
+                </div>
+                <div class="meta-value">
+                    256 × 256 × 3
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Classes
+                </div>
+                <div class="meta-value">
+                    ${result.probabilities.length}
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Segmentation
+                </div>
+                <div class="meta-value">
+                    ${escapeHTML(
+                        method
+                    )}
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Foreground
+                </div>
+                <div class="meta-value">
+                    ${foregroundPercent.toFixed(2)}%
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Background
+                </div>
+                <div class="meta-value">
+                    ${backgroundPercent.toFixed(2)}%
+                </div>
+            </div>
+
+            <div class="meta-card">
+                <div class="meta-label">
+                    Inference Time
+                </div>
+                <div class="meta-value">
+                    ${inferenceTime.toFixed(2)} ms
+                </div>
+            </div>
+
+        </div>
+
+        <div class="explanation" style="margin-top:18px;">
+
+            <b>Probability Sum:</b>
+            ${(result.probabilityTotal * 100).toFixed(2)}%
+
+            <br>
+
+            <b>Preprocessing:</b>
+            FLOAT32 pixels, 0–255
+
+            <br>
+
+            <b>Prediction sequence:</b>
+            Segmented image → TFLite →
+            raw output → temperature scaling
+            (T = 2) → stable Softmax →
+            highest probability.
+
+        </div>
+    `;
+
+
+    /*
+     * TOP PREDICTIONS
+     */
+
+    predictionsElement.innerHTML =
+        result.top.map(
+            function(item, position) {
+
+                const species =
+                    labels[item.index] ||
+                    "Unknown";
+
+                const percentage =
+                    Math.max(
+                        0,
+                        Math.min(
+                            100,
+                            item.value * 100
+                        )
+                    );
+
+                return `
+
+                    <div class="prediction-row">
+
+                        <div>
+                            <strong>
+                                ${position + 1}
+                            </strong>
+                        </div>
+
+                        <div>
+
+                            <strong>
+                                ${escapeHTML(
+                                    species
+                                )}
+                            </strong>
+
+                            <div class="bar">
+
+                                <div
+                                    class="bar-fill"
+                                    style="
+                                        width:${percentage}%;
+                                    "
+                                ></div>
+
+                            </div>
+
+                        </div>
+
+                        <div>
+                            <strong>
+                                ${percentage.toFixed(2)}%
+                            </strong>
+                        </div>
+
+                    </div>
+                `;
+            }
+        )
+        .join("");
+}
+
+
+/* =========================================================
+   MAIN PREDICTION BUTTON
+
+   SEGMENTATION IS PERFORMED FIRST.
+   ========================================================= */
+
+predictButton.addEventListener(
+    "click",
+    async function() {
+
+        if (
+            !modelLoaded ||
+            !model
+        ) {
+
+            setStatus(
+                "Please load the TFLite model first.",
+                "error"
+            );
+
+            return;
+        }
+
+        const imageFile =
+            imageInput.files[0];
+
+        if (!imageFile) {
+
+            setStatus(
+                "Please upload a coral image first.",
+                "error"
+            );
+
+            return;
+        }
+
+        const startTime =
+            performance.now();
+
+        predictButton.disabled =
+            true;
+
+        try {
+
+            /*
+             * ==========================================
+             * STEP 1 — ORIGINAL IMAGE
+             * ==========================================
+             */
+
+            setStatus(
+                "STEP 1/4 — Reading 256 × 256 coral image...",
+                "loading"
+            );
+
+            await tf.nextFrame();
+
+            const originalImageData =
+                getOriginalImageData();
+
+
+            /*
+             * ==========================================
+             * STEP 2 — SEGMENTATION
+             * ==========================================
+             */
+
+            const method =
+                segmentationMethod.value;
+
+            setStatus(
+                "STEP 2/4 — Applying " +
+                method.toUpperCase() +
+                " segmentation...",
+                "loading"
+            );
+
+            await tf.nextFrame();
+
+            const mask =
+                getSegmentationMask(
+                    originalImageData,
+                    method
+                );
+
+            drawMask(mask);
+
+
+            /*
+             * ==========================================
+             * STEP 3 — BACKGROUND SUPPRESSION
+             * ==========================================
+             */
+
+            setStatus(
+                "STEP 3/4 — Suppressing background before CNN prediction...",
+                "loading"
+            );
+
+            await tf.nextFrame();
+
+            const segmentedImage =
+                createSegmentedImage(
+                    originalImageData,
+                    mask
+                );
+
+
+            /*
+             * SEGMENTATION STATISTICS
+             */
+
+            let foreground =
+                0;
+
+            for (
+                const value of mask
+            ) {
+
+                foreground +=
+                    value;
+            }
+
+            const total =
+                mask.length;
+
+            const foregroundPercent =
+                foreground /
+                total *
+                100;
+
+            const backgroundPercent =
+                100 -
+                foregroundPercent;
+
+
+            /*
+             * ==========================================
+             * STEP 4 — TFLITE PREDICTION
+             * ==========================================
+             */
+
+            setStatus(
+                "STEP 4/4 — Applying TFLite CNN prediction...\n" +
+                "Input: 256 × 256 × 3 FLOAT32, 0–255\n" +
+                "Temperature: 2\n" +
+                "Probability: Stable Softmax",
+                "loading"
+            );
+
+            await tf.nextFrame();
+
+            const prediction =
+                await runTFLitePrediction(
+                    segmentedImage
+                );
+
+            const inferenceTime =
+                performance.now() -
+                startTime;
+
+            displayResult(
+                prediction,
+                foregroundPercent,
+                backgroundPercent,
+                method,
+                inferenceTime
+            );
+
+            setStatus(
+                "✓ Prediction completed successfully.\n\n" +
+                "Original image\n" +
+                "↓\n" +
+                "Segmentation\n" +
+                "↓\n" +
+                "Background suppression\n" +
+                "↓\n" +
+                "256 × 256 × 3 FLOAT32 (0–255)\n" +
+                "↓\n" +
+                "TFLite CNN\n" +
+                "↓\n" +
+                "Temperature = 2\n" +
+                "↓\n" +
+                "Stable Softmax\n" +
+                "↓\n" +
+                prediction.predictedSpecies +
+                " (" +
+                prediction.confidence.toFixed(2) +
+                "%)",
+                "success"
+            );
+
+        } catch (error) {
+
+            console.error(
+                "PREDICTION ERROR:",
+                error
+            );
+
+            setStatus(
+                "✗ Prediction Error\n\n" +
+                error.message,
+                "error"
+            );
+
+            resultElement.innerHTML = `
+                <div class="result-title">
+                    Prediction Error
+                </div>
+
+                <p style="text-align:center;color:#8a1c1c;">
+                    ${escapeHTML(
+                        error.message
+                    )}
+                </p>
+            `;
+
+        } finally {
+
+            predictButton.disabled =
+                !modelLoaded;
+        }
+    }
+);
+
+
+/* =========================================================
+   INITIAL MESSAGE
+   ========================================================= */
+
+modelInfo.innerHTML = `
+
+    <strong>Expected model input:</strong>
+    256 × 256 × 3
+    <br>
+
+    <strong>Input dtype:</strong>
+    FLOAT32
+    <br>
+
+    <strong>Input pixel range:</strong>
+    0–255
+    <br>
+
+    <strong>Temperature:</strong>
+    2
+    <br>
+
+    <strong>Probability:</strong>
+    Stable Softmax
+
+`;
+
 </script>
+
 </body>
 </html>
