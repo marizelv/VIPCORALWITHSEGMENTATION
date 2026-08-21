@@ -2420,6 +2420,35 @@ function cropForegroundOnly(imageData, mask) {
     };
 }
 
+
+/* =========================================================
+   DRAW TRUE CORAL ROI
+   ========================================================= */
+
+function drawForegroundROI(imageData) {
+
+    const ctx =
+        segmentedCanvas.getContext("2d");
+
+    /*
+     * The foreground image returned by
+     * cropForegroundOnly() is already a complete
+     * 256 × 256 ImageData object:
+     *
+     *   coral pixels  = original RGB
+     *   background    = black
+     *
+     * Display EXACTLY the same pixels that are
+     * passed to the TFLite CNN.
+     */
+    ctx.putImageData(
+        imageData,
+        0,
+        0
+    );
+}
+
+
 function createModelInputTensor(
     imageData
 ) {
@@ -3093,6 +3122,24 @@ predictButton.addEventListener(
 
             const foregroundImage =
                 foregroundResult.imageData;
+
+            /*
+             * IMPORTANT:
+             * Show the EXACT image that will be
+             * passed into the CNN.
+             *
+             * This fixes the previous issue where
+             * the third panel remained black simply
+             * because the generated ROI was never
+             * drawn onto segmentedCanvas.
+             */
+            drawForegroundROI(
+                foregroundImage
+            );
+
+            console.log(
+                "✓ True coral ROI rendered to CNN input panel."
+            );
 
             console.log(
                 "Selected coral ROI:",
