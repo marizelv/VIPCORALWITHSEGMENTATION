@@ -2411,6 +2411,10 @@ function cropForegroundOnly(imageData, mask) {
         componentCount:
             validComponents.length,
 
+        // Return the selected binary foreground mask so
+        // the UI can calculate foreground/background area.
+        mask: selectedMask,
+
         foregroundPercent:
             selected.area / total * 100
     };
@@ -3078,6 +3082,15 @@ predictButton.addEventListener(
                     mask
                 );
 
+            if (
+                !foregroundResult ||
+                !foregroundResult.imageData
+            ) {
+                throw new Error(
+                    "Foreground coral ROI could not be extracted."
+                );
+            }
+
             const foregroundImage =
                 foregroundResult.imageData;
 
@@ -3091,28 +3104,23 @@ predictButton.addEventListener(
                 foregroundResult.componentArea
             );
 
-            const foregroundMask =
-                foregroundResult.mask;
-
-            const foregroundPixels =
-                foregroundMask.reduce(
-                    function(sum, value) {
-                        return sum + value;
-                    },
-                    0
-                );
-
-            const totalPixels =
-                foregroundMask.length;
-
+            /*
+             * foregroundPercent is calculated directly from
+             * the selected connected coral component.
+             *
+             * This avoids relying on Array.prototype.reduce()
+             * and prevents the "undefined reduce" error.
+             */
             const foregroundPercent =
-                foregroundPixels /
-                totalPixels *
-                100;
+                Number(
+                    foregroundResult.foregroundPercent
+                ) || 0;
 
             const backgroundPercent =
-                100 -
-                foregroundPercent;
+                Math.max(
+                    0,
+                    100 - foregroundPercent
+                );
 
             const bbox =
                 foregroundResult.bbox;
