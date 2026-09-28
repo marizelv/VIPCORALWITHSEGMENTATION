@@ -2529,8 +2529,16 @@ async function runTFLitePrediction(foregroundImage) {
 
         const inputValues = await inputTensor.data();
 
-        const inputMin = Math.min(...inputValues);
-        const inputMax = Math.max(...inputValues);
+        // Do NOT use Math.min(...inputValues) / Math.max(...inputValues) here.
+        // The input contains 256 x 256 x 3 = 196,608 values, and spreading
+        // that many arguments can cause: "Maximum call stack size exceeded".
+        let inputMin = Infinity;
+        let inputMax = -Infinity;
+        for (let i = 0; i < inputValues.length; i++) {
+            const v = inputValues[i];
+            if (v < inputMin) inputMin = v;
+            if (v > inputMax) inputMax = v;
+        }
 
         console.log("TFLite input shape:", inputTensor.shape);
         console.log("TFLite input dtype:", inputTensor.dtype);
