@@ -15,10 +15,30 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 
 <!-- TFLite Web -->
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/tf-tflite.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.9/dist/tf-tflite.min.js"></script>
 
 <style>
 *{box-sizing:border-box}
+<script>
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+        navigator.serviceWorker
+            .register("/service-worker.js")
+            .then(function (registration) {
+                console.log(
+                    "Service Worker registered:",
+                    registration.scope
+                );
+            })
+            .catch(function (error) {
+                console.error(
+                    "Service Worker registration failed:",
+                    error
+                );
+            });
+    });
+}
+</script>
 body{
     margin:0;
     padding:25px 15px;
@@ -278,21 +298,6 @@ canvas{
     }
 }
 </style>
-
-<script>
-if ("serviceWorker" in navigator) {
-    window.addEventListener("load", function () {
-        navigator.serviceWorker
-            .register("/service-worker.js")
-            .then(function (registration) {
-                console.log("Service Worker registered:", registration.scope);
-            })
-            .catch(function (error) {
-                console.error("Service Worker registration failed:", error);
-            });
-    });
-}
-</script>
 </head>
 
 <body>
@@ -483,10 +488,8 @@ already contains Rescaling(1/255).
 =========================================================
 */
 
-const TEMPERATURE = 1.0;
-const CONFIDENCE_THRESHOLD = 0.95;
-const REJECTION_CLASS = "REJECTED / UNKNOWN";
-const TOP_RESULTS = 5;
+const temperature = 1.2;
+const probabilityMethod = "Stable Softmax";
 
 
 /* =========================================================
@@ -763,20 +766,16 @@ loadModelButton.addEventListener(
                 ${labels.length}
                 <br>
 
-                <strong>Confidence Threshold:</strong>
-                ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}%
-                <br>
-
                 <strong>Temperature:</strong>
-                T = ${TEMPERATURE} (used only for logits)
+                ${temperature}
                 <br>
 
                 <strong>Probability:</strong>
-                Probability-aware output handling
+                ${probabilityMethod}
                 <br>
 
                 <strong>Preprocessing:</strong>
-                Foreground-only crop → FLOAT32 / 255.0
+                Foreground-only crop → FLOAT32 0–255
                 <br>
 
                 <strong>Runtime:</strong>
@@ -2475,20 +2474,59 @@ function drawForegroundROI(imageData) {
 }
 
 
-function createModelInputTensor(imageData) {
+function createModelInputTensor(
+    imageData
+) {
 
-    if (!imageData) {
-        throw new Error("Foreground image is missing.");
+    const values =
+        new Float32Array(
+            inputWidth *
+            inputHeight *
+            inputChannels
+        );
+
+    let j = 0;
+
+    for (
+        let i = 0;
+        i <
+        inputWidth *
+        inputHeight;
+        i++
+    ) {
+
+        const p =
+            i * 4;
+
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT divide by 255.
+         *
+         * This matches the uploaded reference
+         * prediction code.
+         */
+
+        values[j++] =
+            imageData.data[p];
+
+        values[j++] =
+            imageData.data[p + 1];
+
+        values[j++] =
+            imageData.data[p + 2];
     }
 
-    // Use TensorFlow.js tensor operations instead of passing the
-    // 196,608 image values as JavaScript function arguments.
-    // This prevents browser call-stack overflow.
-    return tf.tidy(() => {
-        let rgb = tf.browser.fromPixels(imageData, 3);
-        rgb = tf.image.resizeBilinear(rgb, [256, 256], false);
-        return rgb.toFloat().div(255.0).expandDims(0);
-    });
+    return tf.tensor(
+        values,
+        [
+            1,
+            inputHeight,
+            inputWidth,
+            inputChannels
+        ],
+        "float32"
+    );
 }
 
 
@@ -2496,221 +2534,282 @@ function createModelInputTensor(imageData) {
    RUN TFLITE
    ========================================================= */
 
-async function runTFLitePrediction(foregroundImage) {
+async function runTFLitePrediction(
+    foregroundImage
+) {
 
     let inputTensor = null;
-    let predictionOutput = null;
+    let predictionTensor = null;
 
     try {
 
-        inputTensor = createModelInputTensor(foregroundImage);
+        /*
+         * -------------------------------------------
+         * CREATE INPUT
+         * -------------------------------------------
+         */
 
-        if (!model) {
-            throw new Error("TFLite model is not loaded.");
-        }
+        inputTensor =
+            createModelInputTensor(
+                foregroundImage
+            );
 
-        if (inputTensor.shape.join(",") !== "1,256,256,3") {
+        console.log(
+            "Final input tensor:",
+            inputTensor.shape
+        );
+
+        console.log(
+            "Input dtype:",
+            inputTensor.dtype
+        );
+
+        /*
+         * -------------------------------------------
+         * RAW TFLITE OUTPUT
+         * -------------------------------------------
+         */
+
+        predictionTensor =
+            model.predict(
+                inputTensor
+            );
+
+        console.log(
+            "Raw prediction tensor:",
+            predictionTensor
+        );
+
+        const rawOutput =
+            await predictionTensor.data();
+
+        const logits =
+            Array.from(
+                rawOutput
+            );
+
+        console.log(
+            "RAW TFLITE OUTPUT:",
+            logits
+        );
+
+        if (
+            logits.length === 0
+        ) {
+
             throw new Error(
-                "Invalid input shape: [" +
-                inputTensor.shape.join(", ") +
-                "]. Expected [1, 256, 256, 3]."
+                "The TFLite model returned an empty output."
             );
         }
 
-        const inputMin = (await inputTensor.min().data())[0];
-        const inputMax = (await inputTensor.max().data())[0];
+        /*
+         * -------------------------------------------
+         * TEMPERATURE SCALING
+         *
+         * z_i' = z_i / T
+         *
+         * T = 2
+         * -------------------------------------------
+         */
 
-        console.log("TFLite input shape:", inputTensor.shape);
-        console.log("TFLite input dtype:", inputTensor.dtype);
-        console.log("TFLite input min:", inputMin);
-        console.log("TFLite input max:", inputMax);
+        const scaledLogits =
+            logits.map(
+                function(x) {
 
-        // ----------------------------------------------------
-        // Measure MODEL INFERENCE ONLY.
-        // Image loading, segmentation, preprocessing, Softmax,
-        // and UI rendering are excluded.
-        // ----------------------------------------------------
-        const inferenceStart = performance.now();
-
-        predictionOutput = await model.predict(inputTensor);
-
-        const inferenceTimeMs =
-            performance.now() - inferenceStart;
-
-        let rawOutput;
-
-        if (predictionOutput &&
-            typeof predictionOutput.data === "function") {
-
-            rawOutput = Array.from(
-                await predictionOutput.data()
+                    return (
+                        x /
+                        temperature
+                    );
+                }
             );
 
-        } else if (Array.isArray(predictionOutput)) {
+        /*
+         * -------------------------------------------
+         * STABLE SOFTMAX
+         *
+         * P_i =
+         *
+         * exp(z_i' - max(z'))
+         * ------------------
+         * sum exp(z_j' - max(z'))
+         * -------------------------------------------
+         */
 
-            if (predictionOutput.length === 0) {
-                throw new Error("The TFLite model returned an empty output array.");
-            }
-
-            const first = predictionOutput[0];
-
-            if (first && typeof first.data === "function") {
-                rawOutput = Array.from(await first.data());
-            } else {
-                rawOutput = Array.from(predictionOutput).map(Number);
-            }
-
-        } else {
-            throw new Error("Unsupported TFLite output format.");
-        }
-
-        if (!rawOutput.length) {
-            throw new Error("The TFLite model returned an empty output.");
-        }
-
-        if (rawOutput.length !== labels.length) {
-            throw new Error(
-                "Model output has " + rawOutput.length +
-                " values, but labels.json contains " +
-                labels.length + " labels."
-            );
-        }
-
-        console.log("Raw TFLite output:", rawOutput);
-
-        // ----------------------------------------------------
-        // IMPORTANT: do not apply Softmax twice.
-        // If the model already returns probabilities, use them.
-        // If it returns logits, apply temperature scaling first.
-        // ----------------------------------------------------
-        const finite = rawOutput.every(Number.isFinite);
-        if (!finite) {
-            throw new Error("TFLite output contains a non-finite value.");
-        }
-
-        const alreadyProbabilities =
-            rawOutput.every(v => v >= 0 && v <= 1) &&
-            Math.abs(rawOutput.reduce((a, b) => a + b, 0) - 1.0) < 0.01;
-
-        let probabilities;
-        let outputType;
-
-        if (alreadyProbabilities) {
-
-            probabilities = rawOutput.slice();
-            outputType = "Already-normalized probabilities";
-
-        } else {
-
-            const scaled = rawOutput.map(
-                value => value / TEMPERATURE
+        const maxLogit =
+            Math.max(
+                ...scaledLogits
             );
 
-            let maxLogit = -Infinity;
-            for (let i = 0; i < scaled.length; i++) {
-                if (scaled[i] > maxLogit) maxLogit = scaled[i];
-            }
+        const expValues =
+            scaledLogits.map(
+                function(x) {
 
-            const expValues = scaled.map(
-                value => Math.exp(value - maxLogit)
+                    return Math.exp(
+                        x -
+                        maxLogit
+                    );
+                }
             );
 
-            const sumExp = expValues.reduce(
-                (sum, value) => sum + value,
+        const sumExp =
+            expValues.reduce(
+                function(sum, x) {
+
+                    return (
+                        sum +
+                        x
+                    );
+
+                },
                 0
             );
 
-            if (!Number.isFinite(sumExp) || sumExp <= 0) {
-                throw new Error("Unable to calculate Softmax probabilities.");
-            }
+        const probabilities =
+            expValues.map(
+                function(x) {
 
-            probabilities = expValues.map(
-                value => value / sumExp
+                    return (
+                        x /
+                        sumExp
+                    );
+                }
             );
 
-            outputType =
-                "Logits → temperature scaling → Softmax";
-        }
+        /*
+         * -------------------------------------------
+         * CHECK PROBABILITY SUM
+         * -------------------------------------------
+         */
 
-        const probabilityTotal = probabilities.reduce(
-            (sum, value) => sum + value,
-            0
-        );
+        const probabilityTotal =
+            probabilities.reduce(
+                function(sum, value) {
 
-        // ----------------------------------------------------
-        // TOP CLASS
-        // ----------------------------------------------------
+                    return (
+                        sum +
+                        value
+                    );
+
+                },
+                0
+            );
+
+        /*
+         * -------------------------------------------
+         * FIND TOP CLASS
+         * -------------------------------------------
+         */
+
         let maxIndex = 0;
 
-        for (let i = 1; i < probabilities.length; i++) {
-            if (probabilities[i] > probabilities[maxIndex]) {
-                maxIndex = i;
+        for (
+            let i = 1;
+            i < probabilities.length;
+            i++
+        ) {
+
+            if (
+                probabilities[i] >
+                probabilities[maxIndex]
+            ) {
+
+                maxIndex =
+                    i;
             }
         }
 
-        const cnnPredictedSpecies =
-            labels[maxIndex] || "Unknown";
+        const predictedSpecies =
+            labels[maxIndex] ||
+            "Unknown";
 
         const confidence =
-            probabilities[maxIndex];
+            Math.max(
+                0,
+                Math.min(
+                    100,
+                    probabilities[maxIndex] *
+                    100
+                )
+            );
 
-        // ----------------------------------------------------
-        // 95% REJECTION RULE
-        // ----------------------------------------------------
-        const accepted =
-            confidence >= CONFIDENCE_THRESHOLD;
+        /*
+         * -------------------------------------------
+         * SORT TOP 5
+         * -------------------------------------------
+         */
 
-        const finalPrediction =
-            accepted
-                ? cnnPredictedSpecies
-                : REJECTION_CLASS;
+        const indices =
+            Array.from(
+                probabilities
+            )
+            .map(
+                function(value, index) {
 
-        // ----------------------------------------------------
-        // TOP 5
-        // ----------------------------------------------------
-        const top = probabilities
-            .map((value, index) => ({ index, value }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, Math.min(TOP_RESULTS, probabilities.length));
+                    return {
+                        index:
+                            index,
+                        value:
+                            value
+                    };
 
-        console.log("Probability output type:", outputType);
-        console.log("Probabilities:", probabilities);
-        console.log("CNN class:", cnnPredictedSpecies);
-        console.log("Confidence:", confidence);
-        console.log("Accepted:", accepted);
-        console.log("Final prediction:", finalPrediction);
-        console.log("Inference time:", inferenceTimeMs.toFixed(2), "ms");
+                }
+            )
+            .sort(
+                function(a, b) {
+
+                    return (
+                        b.value -
+                        a.value
+                    );
+                }
+            )
+            .slice(
+                0,
+                Math.min(
+                    5,
+                    probabilities.length
+                )
+            );
 
         return {
-            predictedSpecies: finalPrediction,
-            cnnPredictedSpecies: cnnPredictedSpecies,
-            confidence: confidence * 100,
-            confidenceRaw: confidence,
-            accepted: accepted,
-            probabilities: probabilities,
-            probabilityTotal: probabilityTotal,
-            top: top,
-            outputType: outputType,
-            inferenceTimeMs: inferenceTimeMs
+            predictedSpecies:
+                predictedSpecies,
+
+            confidence:
+                confidence,
+
+            probabilities:
+                probabilities,
+
+            probabilityTotal:
+                probabilityTotal,
+
+            top:
+                indices
         };
 
     } finally {
 
-        if (inputTensor && typeof inputTensor.dispose === "function") {
+        /*
+         * -------------------------------------------
+         * MEMORY CLEANUP
+         * -------------------------------------------
+         */
+
+        if (
+            inputTensor
+        ) {
+
             inputTensor.dispose();
         }
 
-        if (predictionOutput &&
-            typeof predictionOutput.dispose === "function") {
-            predictionOutput.dispose();
-        }
+        if (
+            predictionTensor &&
+            typeof predictionTensor.dispose ===
+            "function"
+        ) {
 
-        if (Array.isArray(predictionOutput)) {
-            predictionOutput.forEach(function(item) {
-                if (item && typeof item.dispose === "function") {
-                    item.dispose();
-                }
-            });
+            predictionTensor.dispose();
         }
     }
 }
@@ -2732,15 +2831,13 @@ function displayResult(
     resultElement.innerHTML = `
 
         <div class="result-title">
-            ${result.accepted ? "Predicted Coral Species" : "Classification Result"}
+            Predicted Coral Species
         </div>
 
-        <div class="species ${result.accepted ? "" : "unknown"}">
-            ${escapeHTML(result.predictedSpecies)}
-        </div>
-
-        <div class="${result.accepted ? "accepted" : "unknown"}">
-            ${result.accepted ? "✓ Prediction Accepted" : "⚠ Rejected: confidence below 95%"}
+        <div class="species">
+            ${escapeHTML(
+                result.predictedSpecies
+            )}
         </div>
 
         <div class="confidence">
@@ -2754,19 +2851,19 @@ function displayResult(
 
             <div class="meta-card">
                 <div class="meta-label">
-                    Threshold
+                    Temperature
                 </div>
                 <div class="meta-value">
-                    ${(CONFIDENCE_THRESHOLD * 100).toFixed(0)}%
+                    ${temperature}
                 </div>
             </div>
 
             <div class="meta-card">
                 <div class="meta-label">
-                    Output Handling
+                    Probability
                 </div>
                 <div class="meta-value">
-                    ${escapeHTML(result.outputType)}
+                    Stable Softmax
                 </div>
             </div>
 
@@ -2831,7 +2928,7 @@ function displayResult(
                     Inference Time
                 </div>
                 <div class="meta-value">
-                    ${result.inferenceTimeMs.toFixed(2)} ms
+                    ${inferenceTime.toFixed(2)} ms
                 </div>
             </div>
 
@@ -2839,31 +2936,21 @@ function displayResult(
 
         <div class="explanation" style="margin-top:18px;">
 
-            <b>CNN Predicted Class:</b>
-            ${escapeHTML(result.cnnPredictedSpecies)}
-
-            <br>
-
-            <b>Decision:</b>
-            ${result.accepted ? "ACCEPTED" : "REJECTED / UNKNOWN"}
-
-            <br>
-
             <b>Probability Sum:</b>
             ${(result.probabilityTotal * 100).toFixed(2)}%
 
             <br>
 
             <b>Preprocessing:</b>
-            FLOAT32 pixels normalized by /255.0
+            FLOAT32 pixels, 0–255
 
             <br>
 
-            <b>Prediction sequence:</b> Largest connected coral component → tight ROI crop → background suppression →
+            <b>Prediction sequence:</b> Largest connected coral component → tight ROI crop → background suppression → 
+            Foreground segmentation → largest coral region →
             foreground crop → resize to 256 × 256 →
-            RGB normalization /255.0 → TFLite CNN →
-            probability-aware output handling → highest probability →
-            95% acceptance/rejection threshold.
+            TFLite CNN → temperature scaling (T = 2) →
+            stable Softmax → highest probability.
 
             <br><br>
 
@@ -3119,10 +3206,9 @@ predictButton.addEventListener(
 
             setStatus(
                 "STEP 4/4 — Applying TFLite CNN prediction...\n" +
-                "Input: 256 × 256 × 3 FLOAT32, pixel /255.0\n" +
-                "Rejection threshold: 95%\n" +
-                "Temperature: T = 1 (logits only)\n" +
-                "Probability: Probability-aware Softmax",
+                "Input: 256 × 256 × 3 FLOAT32, 0–255\n" +
+                "Temperature: 2\n" +
+                "Probability: Stable Softmax",
                 "loading"
             );
 
@@ -3134,7 +3220,8 @@ predictButton.addEventListener(
                 );
 
             const inferenceTime =
-                prediction.inferenceTimeMs;
+                performance.now() -
+                startTime;
 
             displayResult(
                 prediction,
@@ -3155,13 +3242,13 @@ predictButton.addEventListener(
                 "↓\n" +
                 "Background bypass\n" +
                 "↓\n" +
-                "256 × 256 × 3 FLOAT32 (pixel /255.0)\n" +
+                "256 × 256 × 3 FLOAT32 (0–255)\n" +
                 "↓\n" +
                 "TFLite CNN\n" +
                 "↓\n" +
-                "95% confidence rejection threshold\n" +
+                "Temperature = 2\n" +
                 "↓\n" +
-                "Temperature = 1 (logits only)\n" +
+                "Stable Softmax\n" +
                 "↓\n" +
                 prediction.predictedSpecies +
                 " (" +
@@ -3172,10 +3259,9 @@ predictButton.addEventListener(
 
         } catch (error) {
 
-            console.error("PREDICTION ERROR:", error);
             console.error(
-                "PREDICTION ERROR STACK:",
-                error && error.stack ? error.stack : "No stack trace available"
+                "PREDICTION ERROR:",
+                error
             );
 
             setStatus(
@@ -3220,23 +3306,19 @@ modelInfo.innerHTML = `
     <br>
 
     <strong>Input pixel range:</strong>
-    0.0–1.0 after /255.0 normalization
+    0–255
     <br>
 
     <strong>Prediction focus:</strong>
     Foreground coral only
     <br>
 
-    <strong>Confidence threshold:</strong>
-    95%
-    <br>
-
     <strong>Temperature:</strong>
-    ${TEMPERATURE} (only when logits are returned)
+    2
     <br>
 
     <strong>Probability:</strong>
-    Automatic probability/logit detection
+    Stable Softmax
 
 `;
 
